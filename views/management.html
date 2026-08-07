@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<script>
+/* Applies the last-known theme from localStorage synchronously, before
+   any CSS paints. This is what actually prevents the white/light flash -
+   theme.js's fetch-based apply is necessarily async and runs too late to
+   avoid a flash on its own; this is the fast path, theme.js is the
+   source-of-truth reconciliation that runs after. */
+(function () {
+  try {
+    var t = JSON.parse(localStorage.getItem("cm_theme") || "null");
+    if (!t) return;
+    var isDark = t.mode === "dark" || (t.mode === "auto" && window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+    var palette = isDark
+      ? { bg: "#17181C", surface: "#1F2126", border: "#33353B", text: "#EDEDEE", textMuted: "#9B9DA3" }
+      : { bg: "#F7F6F2", surface: "#FFFFFF", border: "#DEDBD1", text: "#1C1B18", textMuted: "#78766C" };
+    var root = document.documentElement.style;
+    root.setProperty("--bg", palette.bg);
+    root.setProperty("--surface", palette.surface);
+    root.setProperty("--border", palette.border);
+    root.setProperty("--text", palette.text);
+    root.setProperty("--text-muted", palette.textMuted);
+    root.setProperty("--accent", t.accent || "#1F4B3F");
+  } catch (e) {}
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion</title>
+<style>
+  :root {
+    --bg: #F7F6F2; --surface: #FFFFFF; --border: #DEDBD1;
+    --text: #1C1B18; --text-muted: #78766C;
+    --accent: #1F4B3F; --accent-light: #E4EFE9;
+    --danger: #B23A2E; --danger-light: #F7E7E5;
+    --warn: #B98A2E; --warn-light: #FCEFD8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 24px; flex: 1; overflow-y: auto;}
+  h1 { font-size: 20px; margin: 0 0 16px; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+  .tab-btn { padding: 10px 16px; border: none; background: none; font-size: 14px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-panel { display: none; }
+  .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+  .panel-body { padding: 4px 16px; }
+
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .row:last-child { border-bottom: none; }
+  .row-main { flex: 1; }
+  .row-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .row-mid { font-family: "SF Mono", monospace; white-space: nowrap; }
+  .row-thumb { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+  .row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .row-thumb-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--border); font-weight: 600; font-size: 13px; }
+  .empty { color: var(--text-muted); font-size: 13px; padding: 16px 0; text-align: center; }
+
+  .badge { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--accent-light); color: var(--accent); }
+  .badge.danger { background: var(--danger-light); color: var(--danger); }
+  .badge.warn { background: var(--warn-light); color: var(--warn); }
+
+  form.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  form.card h3 { font-size: 13px; margin: 0 0 10px; }
+  .field-input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; margin-bottom: 8px; font-family: inherit; }
+  .field-row { display: flex; gap: 8px; }
+  .field-row .field-input { flex: 1; }
+  .btn { width: 100%; padding: 11px; border: none; border-radius: 8px; background: var(--accent); color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn.secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+  .type-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
+  .type-toggle-btn { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text-muted); }
+  .type-toggle-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0 4px; }
+  .hint { font-size: 11px; color: var(--text-muted); margin: -4px 0 10px; }
+  .ingredient-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .ingredient-remove { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 12px; }
+  .modal-cancel-link { display: block; text-align: center; margin-top: 10px; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-action-btn { padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 11px; cursor: pointer; white-space: nowrap; }
+  .row-action-btn.danger { color: var(--danger); }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(28,27,24,0.5); align-items: center; justify-content: center; z-index: 100; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; padding: 20px; width: 380px; max-width: 90vw; }
+
+  .receipt-content { font-family: "Courier New", monospace; font-size: 13px; color: #111; }
+  .receipt-content h2 { text-align: center; margin: 0 0 4px; font-size: 16px; }
+  .receipt-content .r-sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 12px; }
+  .receipt-content .r-item { display: flex; justify-content: space-between; padding: 2px 0; }
+  .receipt-content hr { border: none; border-top: 1px dashed #999; margin: 10px 0; }
+  .receipt-content .r-total { display: flex; justify-content: space-between; font-weight: bold; font-size: 15px; }
+  .receipt-content .r-footer { text-align: center; font-size: 11px; color: #555; margin-top: 14px; }
+
+  .receipt-content.tpl-modern { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .receipt-content.tpl-modern h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+  .receipt-content.tpl-modern hr { border-top: 1px solid #ddd; }
+  .receipt-content.tpl-modern .r-total { font-size: 17px; }
+
+  .receipt-content.tpl-minimal { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 11px; }
+  .receipt-content.tpl-minimal h2 { font-size: 13px; font-weight: 600; }
+  .receipt-content.tpl-minimal hr { border-color: transparent; margin: 4px 0; }
+  .receipt-content.tpl-minimal .r-total { font-size: 13px; padding-top: 4px; border-top: 1px solid #ccc; }
+
+  @media print {
+    body * { visibility: hidden; }
+    .print-target, .print-target * { visibility: visible; }
+    .print-target { position: absolute; top: 0; left: 0; width: 100%; }
+  }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+  .kpi-value { font-family: "SF Mono", monospace; font-size: 20px; font-weight: 600; }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(10px); background: var(--text); color: white; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: .2s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .onboarding-overlay { display: none; position: fixed; inset: 0; background: rgba(28,27,24,0.6); align-items: center; justify-content: center; z-index: 500; }
+  .onboarding-overlay.show { display: flex; }
+  .onboarding-card { background: var(--surface); border-radius: 14px; padding: 28px; width: 420px; max-width: 90vw; }
+  .onboarding-card h2 { margin: 0 0 10px; font-size: 18px; }
+  .onboarding-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
+  .onboarding-card label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; display: block; }
+  .onboarding-select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; margin-bottom: 16px; font-family: inherit; }
+  .onboarding-btn { width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--accent); color: white; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .onboarding-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* --- Sidebar (shared shell) --- */
+  body { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 12px;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  .sidebar .brand { font-weight: 600; font-size: 15px; padding: 4px 12px 20px; margin-right: 0; display: block; }
+  .sidebar a {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  .sidebar a.active { background: var(--accent-light); color: var(--accent); }
+  .sidebar a.disabled { opacity: 0.45; pointer-events: none; }
+  .notif-bell-wrap { position: relative; margin-top: auto; margin-left: 0; }
+  .notif-bell { width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px; border: none; background: none; color: var(--text-muted); font-size: 14px; font-weight: 500; cursor: pointer; position: relative; font-family: inherit; }
+  .notif-badge { display: none; position: absolute; top: 2px; right: 6px; background: var(--danger); color: white; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; min-width: 14px; text-align: center; }
+  .notif-dropdown { display: none; position: absolute; bottom: 100%; left: 0; width: 300px; max-height: 400px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; margin-bottom: 6px; }
+  .notif-dropdown.show { display: block; }
+  .notif-dropdown-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+  .notif-dropdown-header button { background: none; border: none; color: var(--accent); font-size: 11px; cursor: pointer; }
+  .notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-item.notif-unread { background: var(--accent-light); }
+  .notif-item.notif-warn { background: var(--danger-light); }
+  .notif-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .notif-empty { padding: 20px; text-align: center; font-size: 12px; color: var(--text-muted); }
+</style>
+<script src="/theme.js"></script>
+<script src="/notifications.js"></script>
+</head>
+<body>
+
+<div class="onboarding-overlay" id="onboarding-overlay">
+  <div class="onboarding-card">
+    <h2>Bienvenue dans Commerce Manager</h2>
+    <p>Avant de commencer, choisissez le type de votre commerce. <strong>Ce choix est definitif</strong> et ne pourra plus etre modifie ensuite - il configure la caisse (types de commande, tables, etc.).</p>
+    <label>Type de commerce</label>
+    <select class="onboarding-select" id="onboarding-type">
+      <option value="restaurant">Restaurant</option>
+      <option value="cafe">Cafe</option>
+      <option value="grocery">Epicerie / Commerce de detail</option>
+      <option value="service">Service (salon, reparation, etc.)</option>
+      <option value="other">Autre</option>
+    </select>
+    <button class="onboarding-btn" id="onboarding-confirm-btn" onclick="confirmBusinessType()">Confirmer</button>
+  </div>
+</div>
+
+<aside class="sidebar">
+  <span class="brand">Commerce manager</span>
+  <a href="dashboard.html">Accueil</a>
+  <a href="index.html">Caisse</a>
+  <a href="management.html" class="active">Gestion</a>
+  <a href="staff.html">Personnel</a>
+  <a href="documents.html">Documents</a>
+  <a href="branding.html">Branding</a>
+  <a href="settings.html">Parametres</a>
+  <div class="notif-bell-wrap" id="notif-bell-wrap">
+    <button class="notif-bell" onclick="toggleNotifDropdown()">Notifications<span class="notif-badge" id="notif-badge"></span></button>
+    <div class="notif-dropdown" id="notif-dropdown">
+      <div class="notif-dropdown-header">
+        <span>Notifications</span>
+        <button onclick="markAllNotificationsRead()">Tout marquer lu</button>
+      </div>
+      <div id="notif-list"></div>
+    </div>
+  </div>
+</aside>
+
+<main>
+  <h1>Gestion</h1>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="inventory" onclick="switchTab('inventory')">Inventaire</button>
+    <button class="tab-btn" data-tab="suppliers" onclick="switchTab('suppliers')">Fournisseurs</button>
+    <button class="tab-btn" data-tab="purchasing" onclick="switchTab('purchasing')">Achats</button>
+    <button class="tab-btn" data-tab="tables" id="tables-tab-btn" style="display:none" onclick="switchTab('tables')">Tables</button>
+    <button class="tab-btn" data-tab="sales" onclick="switchTab('sales')">Ventes</button>
+    <button class="tab-btn" data-tab="reports" onclick="switchTab('reports')">Rapports</button>
+  </div>
+
+  <div class="tab-panel" id="panel-inventory">
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-header">Produits</div>
+        <div class="panel-body" id="inventory-list"></div>
+      </div>
+      <div>
+        <form class="card" onsubmit="submitProductForm(event)">
+          <h3 id="product-form-title">Ajouter un produit</h3>
+
+          <div class="type-toggle" id="type-toggle">
+            <button type="button" class="type-toggle-btn active" data-ptype="simple" onclick="setProductType('simple')">Simple (achat/revente)</button>
+            <button type="button" class="type-toggle-btn" data-ptype="recipe" onclick="setProductType('recipe')">Recette (fabrique)</button>
+          </div>
+
+          <input class="field-input" name="name" placeholder="Nom du produit" required>
+          <input class="field-input" name="barcode" placeholder="Code-barres (scannez ou tapez-le ici)">
+          <span class="field-label">Photo (optionnel)</span>
+          <input class="field-input" name="photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="previewProductPhoto(event)">
+          <div id="photo-preview" style="display:none;margin-bottom:10px">
+            <img id="photo-preview-img" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+          </div>
+          <select class="field-input" name="category_id" id="category-select-product"></select>
+
+          <input class="field-input" name="sale_price" type="number" step="0.01" placeholder="Prix de vente" required>
+
+          <div id="simple-fields">
+            <div class="field-row">
+              <input class="field-input" name="cost_price" type="number" step="0.01" placeholder="Cout d'achat">
+              <select class="field-input" name="unit">
+                <option value="unite">Unite</option>
+                <option value="g">Grammes (g)</option>
+                <option value="kg">Kilogrammes (kg)</option>
+                <option value="ml">Millilitres (ml)</option>
+                <option value="l">Litres (l)</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <input class="field-input" name="stock_qty" type="number" step="1" placeholder="Stock initial">
+              <input class="field-input" name="reorder_threshold" type="number" step="1" placeholder="Seuil d'alerte">
+            </div>
+            <span class="field-label">Date de peremption (optionnel)</span>
+            <input class="field-input" name="expiry_date" type="date">
+            <label class="checkbox-label">
+              <input type="checkbox" name="sellable" checked> Vendable directement en caisse
+            </label>
+            <div class="hint">Decochez pour une matiere premiere (cafe en grains, lait...) utilisee seulement dans des recettes.</div>
+          </div>
+
+          <div id="recipe-fields" style="display:none">
+            <div class="hint" style="margin-top:0">Le cout et le stock sont calcules automatiquement a partir des ingredients ci-dessous.</div>
+            <div class="field-row">
+              <select class="field-input" id="ingredient-picker"></select>
+              <input class="field-input" id="ingredient-qty" type="number" step="0.1" placeholder="Quantite">
+            </div>
+            <button class="btn secondary" type="button" onclick="addIngredientLine()">Ajouter l'ingredient</button>
+            <div id="ingredient-list" style="margin: 10px 0"></div>
+          </div>
+
+          <button class="btn" type="submit" id="product-form-submit" style="margin-top:10px">Ajouter</button>
+          <span class="modal-cancel-link" id="cancel-edit-link" style="display:none" onclick="cancelProductEdit()">Annuler la modification</span>
+        </form>
+        <form class="card" onsubmit="addCategory(event)">
+          <h3>Nouvelle categorie</h3>
+          <input class="field-input" name="name" placeholder="Nom de la categorie" required>
+          <button class="btn secondary" type="submit">Ajouter</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-suppliers">
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-header">Fournisseurs</div>
+        <div class="panel-body" id="supplier-list"></div>
+      </div>
+      <form class="card" id="supplier-form" onsubmit="saveSupplier(event)">
+        <h3 id="supplier-form-title">Ajouter un fournisseur</h3>
+        <input class="field-input" name="name" placeholder="Nom" required>
+        <input class="field-input" name="contact_person" placeholder="Personne a contacter (optionnel)">
+        <div class="field-row">
+          <input class="field-input" name="phone" placeholder="Telephone">
+          <input class="field-input" name="email" placeholder="Email">
+        </div>
+        <input class="field-input" name="address" placeholder="Adresse">
+        <input class="field-input" name="ice" placeholder="ICE">
+        <textarea class="field-input" name="notes" rows="2" placeholder="Notes (delais habituels, conditions...)"></textarea>
+        <div style="display:flex; gap:8px">
+          <button class="btn" type="submit">Enregistrer</button>
+          <button class="btn secondary" type="button" id="supplier-cancel-btn" style="display:none" onclick="cancelSupplierEdit()">Annuler</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-purchasing">
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-header">Historique des receptions</div>
+        <div class="panel-body" id="po-list"></div>
+      </div>
+      <div class="card">
+        <h3>Nouvelle reception (met a jour le stock)</h3>
+        <select class="field-input" id="po-supplier"></select>
+        <select class="field-input" id="po-product"></select>
+        <div class="field-row">
+          <input class="field-input" id="po-qty" type="number" step="1" placeholder="Quantite">
+          <input class="field-input" id="po-cost" type="number" step="0.01" placeholder="Cout unitaire">
+        </div>
+        <button class="btn secondary" type="button" onclick="addPoLine()">Ajouter la ligne</button>
+        <div id="po-cart" style="margin:10px 0"></div>
+        <button class="btn" type="button" onclick="submitPo()">Enregistrer la reception</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-tables">
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-header">Tables</div>
+        <div class="panel-body" id="table-management-list"></div>
+      </div>
+      <form class="card" onsubmit="addTable(event)">
+        <h3>Ajouter une table</h3>
+        <input class="field-input" name="label" placeholder="Nom (ex: Table 5, Terrasse 2)" required>
+        <input class="field-input" name="seats" type="number" step="1" placeholder="Nombre de places" value="2">
+        <button class="btn" type="submit">Ajouter</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-sales">
+    <div class="panel">
+      <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Historique des ventes</span>
+        <button class="row-action-btn" onclick="exportSalesCsv()">Exporter en CSV</button>
+      </div>
+      <div class="panel-body" id="sales-list"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-reports">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+      <button class="row-action-btn" onclick="exportReportsCsv()">Exporter en CSV</button>
+      <button class="row-action-btn" onclick="printReportsPdf()">Imprimer / Exporter en PDF</button>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi-card"><div class="kpi-label">Chiffre d'affaires total</div><div class="kpi-value" id="report-revenue">-</div></div>
+      <div class="kpi-card"><div class="kpi-label">Cout des marchandises</div><div class="kpi-value" id="report-cost">-</div></div>
+      <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value" id="report-profit" style="color:var(--accent)">-</div></div>
+      <div class="kpi-card"><div class="kpi-label">TVA collectee</div><div class="kpi-value" id="report-tax">-</div></div>
+    </div>
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-header">Ventes des 7 derniers jours</div>
+        <div class="panel-body" id="report-sales-by-day"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">Meilleures ventes</div>
+        <div class="panel-body" id="report-best-sellers"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="print-report" class="print-target" style="display:none"></div>
+
+<div class="modal-overlay" id="receipt-modal">
+  <div class="modal" style="width:320px">
+    <div id="receipt-content" class="receipt-content print-target"></div>
+    <button class="btn" onclick="window.print()" style="margin-top:14px">Imprimer</button>
+    <span class="modal-cancel-link" onclick="closeReceiptModal()">Fermer</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = "/api";
+
+async function checkBusinessType() {
+  const settings = await fetch(`${API}/settings`).then(r => r.json());
+  if (!settings.business_type) {
+    document.getElementById("onboarding-overlay").classList.add("show");
+  }
+  return settings.business_type || null;
+}
+
+async function confirmBusinessType() {
+  const type = document.getElementById("onboarding-type").value;
+  const btn = document.getElementById("onboarding-confirm-btn");
+  btn.disabled = true;
+  const res = await fetch(`${API}/settings`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business_type: type }),
+  });
+  if (res.ok) { location.reload(); } else { btn.disabled = false; }
+}
+
+// Recipes (products made from ingredients) only make sense for
+// businesses that actually manufacture what they sell.
+const RECIPE_ENABLED_TYPES = ["restaurant", "cafe", "other"];
+function applyRecipeAvailability(businessType) {
+  if (businessType && !RECIPE_ENABLED_TYPES.includes(businessType)) {
+    document.getElementById("type-toggle").style.display = "none";
+    setProductType("simple");
+  }
+}
+
+// Tables only matter for business types that offer dine-in in the
+// caisse (see BUSINESS_TYPE_CONFIG in index.html - keep these in sync).
+const TABLES_ENABLED_TYPES = ["restaurant", "cafe", "other"];
+function applyTablesAvailability(businessType) {
+  if (businessType && TABLES_ENABLED_TYPES.includes(businessType)) {
+    document.getElementById("tables-tab-btn").style.display = "block";
+  }
+}
+
+checkBusinessType().then(businessType => {
+  applyRecipeAvailability(businessType);
+  applyTablesAvailability(businessType);
+});
+let products = [];
+let categories = [];
+let suppliers = [];
+let purchaseOrders = [];
+let managedTables = [];
+let salesList = [];
+let lastSalesByDay = [];
+let lastProfit = { revenue: 0, cost: 0, profit: 0, tax_collected: 0 };
+let lastBestSellers = [];
+let poCart = {};
+let currentProductType = "simple";
+let recipeIngredients = [];
+
+function setProductType(type) {
+  currentProductType = type;
+  document.querySelectorAll(".type-toggle-btn").forEach(el => el.classList.toggle("active", el.dataset.ptype === type));
+  document.getElementById("simple-fields").style.display = type === "simple" ? "block" : "none";
+  document.getElementById("recipe-fields").style.display = type === "recipe" ? "block" : "none";
+  if (type === "recipe") renderIngredientPicker();
+}
+
+function renderIngredientPicker() {
+  // Ingredients must be existing "simple" products (raw materials or
+  // resale items) - a recipe can't be made of another recipe.
+  const simpleProducts = products.filter(p => p.product_type === "simple");
+  document.getElementById("ingredient-picker").innerHTML =
+    simpleProducts.map(p => `<option value="${p.id}">${p.name} (${p.unit})</option>`).join("") ||
+    `<option value="">Aucun produit simple disponible - creez d'abord vos matieres premieres</option>`;
+}
+
+function addIngredientLine() {
+  const select = document.getElementById("ingredient-picker");
+  const productId = select.value;
+  const qty = parseFloat(document.getElementById("ingredient-qty").value);
+  if (!productId || !qty) return;
+  const product = products.find(p => p.id === productId);
+  recipeIngredients.push({ ingredient_product_id: productId, quantity: qty, name: product.name, unit: product.unit });
+  document.getElementById("ingredient-qty").value = "";
+  renderIngredientList();
+}
+
+function removeIngredientLine(index) {
+  recipeIngredients.splice(index, 1);
+  renderIngredientList();
+}
+
+function renderIngredientList() {
+  document.getElementById("ingredient-list").innerHTML = recipeIngredients.map((ing, i) => `
+    <div class="ingredient-row">
+      <span>${ing.quantity} ${ing.unit} - ${ing.name}</span>
+      <button type="button" class="ingredient-remove" onclick="removeIngredientLine(${i})">Retirer</button>
+    </div>
+  `).join("") || `<div class="empty">Aucun ingredient ajoute</div>`;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll(".tab-btn").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
+  document.querySelectorAll(".tab-panel").forEach(el => el.style.display = el.id === `panel-${tab}` ? "block" : "none");
+}
+
+async function loadAll() {
+  const [p, c, s, po, tbl, sales] = await Promise.all([
+    fetch(`${API}/products`).then(r => r.json()),
+    fetch(`${API}/categories`).then(r => r.json()),
+    fetch(`${API}/suppliers`).then(r => r.json()),
+    fetch(`${API}/purchase-orders`).then(r => r.json()),
+    fetch(`${API}/tables`).then(r => r.json()),
+    fetch(`${API}/sales`).then(r => r.json()),
+  ]);
+  products = p; categories = c; suppliers = s; purchaseOrders = po; managedTables = tbl; salesList = sales;
+  renderInventory();
+  renderSuppliers();
+  renderPurchaseOrders();
+  renderPoProductPicker();
+  renderSupplierSelect();
+  renderCategorySelect();
+  renderIngredientPicker();
+  renderTableManagementList();
+  renderSalesList();
+  await renderReports();
+}
+
+function renderSalesList() {
+  const el = document.getElementById("sales-list");
+  el.innerHTML = salesList.length ? salesList.map(t => `
+    <div class="row">
+      <div class="row-main">
+        <div>Ticket #${t.ticket_number} ${t.status === "refunded" ? '<span class="badge danger">Rembourse</span>' : ""}</div>
+        <div class="row-sub">${new Date(t.created_at).toLocaleString("fr-FR")} - ${t.items.map(i => `${i.quantity}x ${i.product_name}`).join(", ")}</div>
+      </div>
+      <div class="row-mid">${t.total.toFixed(2)} MAD</div>
+      <button class="row-action-btn" onclick="reprintReceipt('${t.id}')">Imprimer</button>
+    </div>
+  `).join("") : `<div class="empty">Aucune vente enregistree</div>`;
+}
+
+async function reprintReceipt(ticketId) {
+  const ticket = salesList.find(t => t.id === ticketId);
+  if (!ticket) return;
+  const settings = await fetch(`${API}/settings`).then(r => r.json());
+  const storeName = settings.store_name || "Commerce";
+  const currency = settings.currency || "MAD";
+  const address = settings.store_address || "";
+  const phone = settings.store_phone || "";
+  const footer = settings.receipt_footer || "Merci de votre visite";
+  const dateStr = new Date(ticket.closed_at || ticket.created_at).toLocaleString("fr-FR");
+  const paymentMethod = ticket.payments.map(p => p.method).join(", ") || "-";
+
+  const itemsHtml = ticket.items.map(i => `
+    <div class="r-item"><span>${i.quantity} x ${i.product_name}</span><span>${i.line_total.toFixed(2)}</span></div>
+  `).join("");
+
+  const template = settings.receipt_template || "classic";
+  document.getElementById("receipt-content").className = "receipt-content print-target" + (template !== "classic" ? " tpl-" + template : "");
+  document.getElementById("receipt-content").innerHTML = `
+    <h2>${storeName}</h2>
+    ${address ? `<div class="r-sub">${address}</div>` : ""}
+    ${phone ? `<div class="r-sub">${phone}</div>` : ""}
+    <div class="r-sub">Ticket #${ticket.ticket_number} - ${dateStr}</div>
+    <hr>${itemsHtml}<hr>
+    ${ticket.discount_total > 0 ? `<div class="r-item"><span>Remise</span><span>-${ticket.discount_total.toFixed(2)}</span></div>` : ""}
+    <div class="r-item"><span>Sous-total (HT)</span><span>${ticket.subtotal.toFixed(2)}</span></div>
+    <div class="r-item"><span>TVA</span><span>${ticket.tax_total.toFixed(2)}</span></div>
+    <div class="r-total"><span>TOTAL</span><span>${ticket.total.toFixed(2)} ${currency}</span></div>
+    <div class="r-sub" style="margin-top:6px">Paiement : ${paymentMethod}</div>
+    <div class="r-footer">${footer}</div>
+  `;
+  document.getElementById("receipt-modal").classList.add("show");
+}
+
+function closeReceiptModal() {
+  document.getElementById("receipt-modal").classList.remove("show");
+}
+
+function renderTableManagementList() {
+  const el = document.getElementById("table-management-list");
+  el.innerHTML = managedTables.length ? managedTables.map(t => `
+    <div class="row">
+      <div class="row-main">
+        <div>${t.label}</div>
+        <div class="row-sub">${t.seats} places</div>
+      </div>
+      <span class="badge ${t.status === 'occupied' ? 'warn' : ''}">${t.status === 'occupied' ? 'Occupee' : 'Libre'}</span>
+    </div>
+  `).join("") : `<div class="empty">Aucune table - ajoutez-en une pour activer "Sur place" en caisse</div>`;
+}
+
+async function addTable(event) {
+  event.preventDefault();
+  const form = event.target;
+  const res = await fetch(`${API}/tables`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: form.label.value, seats: parseInt(form.seats.value) || 2 }),
+  });
+  if (res.ok) { form.reset(); form.seats.value = 2; await loadAll(); showToast("Table ajoutee"); }
+}
+
+function renderCategorySelect() {
+  document.getElementById("category-select-product").innerHTML =
+    `<option value="">Sans categorie</option>` + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+}
+
+function renderInventory() {
+  const el = document.getElementById("inventory-list");
+  const soon = new Date();
+  soon.setDate(soon.getDate() + 7);
+
+  el.innerHTML = products.length ? products.map(p => {
+    const isRecipe = p.product_type === "recipe";
+    const low = !isRecipe && p.stock_qty <= p.reorder_threshold;
+    const over = !isRecipe && p.stock_qty >= p.overstock_threshold;
+    const expiryDate = p.expiry_date ? new Date(p.expiry_date) : null;
+    const expired = expiryDate && expiryDate < new Date();
+    const expiringSoon = expiryDate && !expired && expiryDate <= soon;
+
+    const subtitle = isRecipe
+      ? `Recette - ${p.ingredients.map(i => `${i.quantity}${i.unit} ${i.name}`).join(", ")}`
+      : `${p.category_name || "Sans categorie"} - cout ${p.cost_price.toFixed(2)} MAD${p.barcode ? " - " + p.barcode : ""}${p.expiry_date ? " - expire le " + expiryDate.toLocaleDateString("fr-FR") : ""}`;
+
+    const stockLabel = isRecipe
+      ? `${p.available_qty} realisables`
+      : `${p.stock_qty} en stock`;
+
+    return `
+      <div class="row">
+        <div class="row-thumb">
+          ${p.image_filename
+            ? `<img src="/uploads/products/${p.image_filename}" alt="">`
+            : `<div class="row-thumb-placeholder">${p.name.charAt(0).toUpperCase()}</div>`}
+        </div>
+        <div class="row-main">
+          <div>${p.name} ${!p.sellable ? '<span class="badge" style="background:var(--bg);color:var(--text-muted)">Ingredient seulement</span>' : ""} ${isRecipe ? '<span class="badge" style="background:var(--accent-light);color:var(--accent)">Recette</span>' : ""}</div>
+          <div class="row-sub">${subtitle}</div>
+        </div>
+        <div class="row-mid">${stockLabel}</div>
+        <div class="row-mid">${p.sellable ? p.sale_price.toFixed(2) + " MAD" : "-"}</div>
+        <div>
+          ${low ? '<span class="badge danger">Stock faible</span>' : over ? '<span class="badge warn">Surstock</span>' : ""}
+          ${expired ? '<span class="badge danger">Perime</span>' : expiringSoon ? '<span class="badge warn">Expire bientot</span>' : ""}
+        </div>
+        <div class="row-actions">
+          <button class="row-action-btn" onclick="editProduct('${p.id}')">Modifier</button>
+          <button class="row-action-btn danger" onclick="deleteProduct('${p.id}', '${p.name.replace(/'/g, "\\'")}')">Supprimer</button>
+        </div>
+      </div>
+    `;
+  }).join("") : `<div class="empty">Aucun produit</div>`;
+}
+
+let editingProductId = null;
+
+function previewProductPhoto(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById("photo-preview-img").src = reader.result;
+    document.getElementById("photo-preview").style.display = "block";
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitProductForm(event) {
+  event.preventDefault();
+  const form = event.target;
+
+  let payload;
+  if (currentProductType === "simple") {
+    payload = {
+      name: form.name.value,
+      barcode: form.barcode.value || null,
+      category_id: form.category_id.value || null,
+      product_type: "simple",
+      sellable: form.sellable.checked,
+      unit: form.unit.value,
+      cost_price: parseFloat(form.cost_price.value) || 0,
+      sale_price: parseFloat(form.sale_price.value),
+      stock_qty: parseFloat(form.stock_qty.value) || 0,
+      reorder_threshold: parseFloat(form.reorder_threshold.value) || 5,
+      expiry_date: form.expiry_date.value || null,
+    };
+  } else {
+    if (recipeIngredients.length === 0) {
+      showToast("Ajoutez au moins un ingredient a la recette");
+      return;
+    }
+    payload = {
+      name: form.name.value,
+      barcode: form.barcode.value || null,
+      category_id: form.category_id.value || null,
+      product_type: "recipe",
+      sellable: true,
+      sale_price: parseFloat(form.sale_price.value),
+      ingredients: recipeIngredients.map(i => ({ ingredient_product_id: i.ingredient_product_id, quantity: i.quantity })),
+    };
+  }
+
+  const url = editingProductId ? `${API}/products/${editingProductId}` : `${API}/products`;
+  const method = editingProductId ? "PATCH" : "POST";
+  const res = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  if (res.ok) {
+    const savedProduct = await res.json();
+    const photoFile = form.photo.files[0];
+    if (photoFile) {
+      const formData = new FormData();
+      formData.append("image", photoFile);
+      await fetch(`${API}/products/${savedProduct.id}/image`, { method: "POST", body: formData });
+    }
+
+    const wasEditing = !!editingProductId;
+    cancelProductEdit();
+    form.reset();
+    document.getElementById("photo-preview").style.display = "none";
+    recipeIngredients = [];
+    renderIngredientList();
+    setProductType("simple");
+    await loadAll();
+    showToast(wasEditing ? "Produit modifie" : "Produit ajoute");
+  } else {
+    const err = await res.json();
+    showToast(err.error || "Erreur - code-barres peut-etre deja utilise");
+  }
+}
+
+function editProduct(productId) {
+  const p = products.find(x => x.id === productId);
+  if (!p) return;
+  editingProductId = productId;
+
+  document.getElementById("product-form-title").textContent = `Modifier : ${p.name}`;
+  document.getElementById("product-form-submit").textContent = "Enregistrer les modifications";
+  document.getElementById("cancel-edit-link").style.display = "block";
+
+  const form = document.getElementById("product-form-submit").closest("form");
+  form.name.value = p.name;
+  form.barcode.value = p.barcode || "";
+  form.category_id.value = p.category_id || "";
+  form.sale_price.value = p.sale_price;
+
+  if (p.image_filename) {
+    document.getElementById("photo-preview-img").src = `/uploads/products/${p.image_filename}`;
+    document.getElementById("photo-preview").style.display = "block";
+  } else {
+    document.getElementById("photo-preview").style.display = "none";
+  }
+
+  setProductType(p.product_type);
+  document.getElementById("type-toggle").querySelectorAll(".type-toggle-btn").forEach(el => el.disabled = true);
+
+  if (p.product_type === "simple") {
+    form.cost_price.value = p.cost_price;
+    form.unit.value = p.unit;
+    form.stock_qty.value = p.stock_qty;
+    form.reorder_threshold.value = p.reorder_threshold;
+    form.expiry_date.value = p.expiry_date || "";
+    form.sellable.checked = !!p.sellable;
+  } else {
+    recipeIngredients = p.ingredients.map(i => ({
+      ingredient_product_id: i.ingredient_product_id, quantity: i.quantity, name: i.name, unit: i.unit,
+    }));
+    renderIngredientList();
+  }
+
+  form.scrollIntoView({ behavior: "smooth" });
+}
+
+function cancelProductEdit() {
+  editingProductId = null;
+  document.getElementById("product-form-title").textContent = "Ajouter un produit";
+  document.getElementById("product-form-submit").textContent = "Ajouter";
+  document.getElementById("cancel-edit-link").style.display = "none";
+  document.getElementById("type-toggle").querySelectorAll(".type-toggle-btn").forEach(el => el.disabled = false);
+  document.getElementById("photo-preview").style.display = "none";
+  recipeIngredients = [];
+  renderIngredientList();
+}
+
+async function deleteProduct(productId, name) {
+  if (!confirm(`Supprimer "${name}" ? Il n'apparaitra plus en caisse, mais l'historique des ventes est conserve.`)) return;
+  const res = await fetch(`${API}/products/${productId}`, { method: "DELETE" });
+  const data = await res.json();
+  if (res.ok) {
+    await loadAll();
+    showToast("Produit supprime");
+  } else {
+    showToast(data.error, true);
+  }
+}
+
+async function addCategory(event) {
+  event.preventDefault();
+  const form = event.target;
+  await fetch(`${API}/categories`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name.value }),
+  });
+  form.reset();
+  await loadAll();
+}
+
+function renderSuppliers() {
+  const el = document.getElementById("supplier-list");
+  el.innerHTML = suppliers.length ? suppliers.map(s => `
+    <div class="row">
+      <div class="row-main">
+        <div>${s.name} ${s.contact_person ? `<span class="row-sub">(${s.contact_person})</span>` : ""}</div>
+        <div class="row-sub">${[s.phone, s.email, s.address].filter(Boolean).join(" - ")}</div>
+        ${s.ice ? `<div class="row-sub">ICE : ${s.ice}</div>` : ""}
+        ${s.notes ? `<div class="row-sub">${s.notes}</div>` : ""}
+      </div>
+      <div class="row-mid">
+        ${s.balance_due > 0.005
+          ? `<span class="badge danger">${s.balance_due.toFixed(2)} MAD du</span>`
+          : `<span class="badge" style="background:var(--bg);color:var(--text-muted)">A jour</span>`}
+      </div>
+      <div class="row-actions">
+        <button class="row-action-btn" onclick="editSupplier('${s.id}')">Modifier</button>
+        <button class="row-action-btn danger" onclick="deleteSupplier('${s.id}', '${s.name.replace(/'/g, "\\'")}')">Supprimer</button>
+      </div>
+    </div>
+  `).join("") : `<div class="empty">Aucun fournisseur</div>`;
+}
+
+let editingSupplierId = null;
+
+function editSupplier(supplierId) {
+  const s = suppliers.find(x => x.id === supplierId);
+  if (!s) return;
+  editingSupplierId = supplierId;
+  const form = document.getElementById("supplier-form");
+  form.name.value = s.name || "";
+  form.contact_person.value = s.contact_person || "";
+  form.phone.value = s.phone || "";
+  form.email.value = s.email || "";
+  form.address.value = s.address || "";
+  form.ice.value = s.ice || "";
+  form.notes.value = s.notes || "";
+  document.getElementById("supplier-form-title").textContent = "Modifier le fournisseur";
+  document.getElementById("supplier-cancel-btn").style.display = "";
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function cancelSupplierEdit() {
+  editingSupplierId = null;
+  document.getElementById("supplier-form").reset();
+  document.getElementById("supplier-form-title").textContent = "Ajouter un fournisseur";
+  document.getElementById("supplier-cancel-btn").style.display = "none";
+}
+
+async function saveSupplier(event) {
+  event.preventDefault();
+  const form = event.target;
+  const payload = {
+    name: form.name.value,
+    contact_person: form.contact_person.value,
+    phone: form.phone.value,
+    email: form.email.value,
+    address: form.address.value,
+    ice: form.ice.value,
+    notes: form.notes.value,
+  };
+
+  const url = editingSupplierId ? `${API}/suppliers/${editingSupplierId}` : `${API}/suppliers`;
+  const method = editingSupplierId ? "PATCH" : "POST";
+  const res = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || "Erreur", true); return; }
+
+  cancelSupplierEdit();
+  await loadAll();
+  showToast(editingSupplierId ? "Fournisseur mis a jour" : "Fournisseur ajoute");
+}
+
+async function deleteSupplier(supplierId, name) {
+  if (!confirm(`Supprimer le fournisseur "${name}" ?`)) return;
+  const res = await fetch(`${API}/suppliers/${supplierId}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || "Erreur", true); return; }
+  await loadAll();
+  showToast("Fournisseur supprime");
+}
+
+function renderSupplierSelect() {
+  document.getElementById("po-supplier").innerHTML =
+    `<option value="">Sans fournisseur</option>` + suppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+}
+
+function renderPoProductPicker() {
+  document.getElementById("po-product").innerHTML =
+    products.filter(p => p.product_type === "simple").map(p => `<option value="${p.id}">${p.name} (${p.unit})</option>`).join("");
+}
+
+function addPoLine() {
+  const productId = document.getElementById("po-product").value;
+  const qty = parseFloat(document.getElementById("po-qty").value);
+  const cost = parseFloat(document.getElementById("po-cost").value);
+  if (!productId || !qty || !cost) return;
+  poCart[productId] = { quantity: qty, unit_cost: cost };
+  renderPoCart();
+}
+
+function renderPoCart() {
+  const el = document.getElementById("po-cart");
+  const entries = Object.entries(poCart);
+  el.innerHTML = entries.length ? entries.map(([pid, line]) => {
+    const product = products.find(p => p.id === pid);
+    return `<div class="row"><div class="row-main">${product.name}</div><div>${line.quantity} x ${line.unit_cost.toFixed(2)}</div></div>`;
+  }).join("") : `<div class="empty">Aucune ligne</div>`;
+}
+
+async function submitPo() {
+  const items = Object.entries(poCart).map(([product_id, l]) => ({ product_id, quantity: l.quantity, unit_cost: l.unit_cost }));
+  if (!items.length) return;
+  const supplierId = document.getElementById("po-supplier").value || null;
+  const res = await fetch(`${API}/purchase-orders`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ supplier_id: supplierId, items }),
+  });
+  if (res.ok) {
+    poCart = {};
+    renderPoCart();
+    await loadAll();
+    showToast("Bon de reception enregistre - stock mis a jour");
+  }
+}
+
+function renderPurchaseOrders() {
+  const el = document.getElementById("po-list");
+  el.innerHTML = purchaseOrders.length ? purchaseOrders.map(po => `
+    <div class="row">
+      <div class="row-main">
+        <div>${po.supplier_name || "Sans fournisseur"}</div>
+        <div class="row-sub">${new Date(po.created_at).toLocaleDateString("fr-FR")} - ${po.items.length} article(s)</div>
+      </div>
+      <div class="row-mid">${po.total_amount.toFixed(2)} MAD</div>
+      <button class="row-action-btn danger" onclick="deletePurchaseOrder('${po.id}')">Supprimer</button>
+    </div>
+  `).join("") : `<div class="empty">Aucun achat enregistre</div>`;
+}
+
+async function deletePurchaseOrder(poId) {
+  if (!confirm("Supprimer cet achat ? Le stock reçu sera retire. Le cout unitaire des produits ne sera PAS annule s'il a change depuis.")) return;
+  const res = await fetch(`${API}/purchase-orders/${poId}`, { method: "DELETE" });
+  if (res.ok) { await loadAll(); showToast("Achat supprime, stock ajuste"); }
+}
+
+async function renderReports() {
+  const [salesRes, profitRes, bestRes] = await Promise.all([
+    fetch(`${API}/reports/sales?period=week`).then(r => r.json()),
+    fetch(`${API}/reports/profit`).then(r => r.json()),
+    fetch(`${API}/reports/best-sellers`).then(r => r.json()),
+  ]);
+  lastSalesByDay = salesRes;
+  lastProfit = profitRes;
+  lastBestSellers = bestRes;
+
+  document.getElementById("report-revenue").textContent = profitRes.revenue.toFixed(2) + " MAD";
+  document.getElementById("report-cost").textContent = profitRes.cost.toFixed(2) + " MAD";
+  document.getElementById("report-profit").textContent = profitRes.profit.toFixed(2) + " MAD";
+  document.getElementById("report-tax").textContent = profitRes.tax_collected.toFixed(2) + " MAD";
+
+  document.getElementById("report-sales-by-day").innerHTML = salesRes.length ? salesRes.map(r => `
+    <div class="row"><div class="row-main">${r.day}</div><div>${r.orders} commande(s)</div><div class="row-mid">${r.revenue.toFixed(2)} MAD</div></div>
+  `).join("") : `<div class="empty">Pas encore de ventes cette semaine</div>`;
+
+  document.getElementById("report-best-sellers").innerHTML = bestRes.length ? bestRes.map(b => `
+    <div class="row"><div class="row-main">${b.product_name}</div><div>${b.qty_sold} vendu(s)</div><div class="row-mid">${b.revenue.toFixed(2)} MAD</div></div>
+  `).join("") : `<div class="empty">Pas encore de donnees</div>`;
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map(row => row.map(cell => {
+    const str = String(cell ?? "");
+    return /[",\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
+  }).join(",")).join("\r\n");
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportSalesCsv() {
+  const rows = [["Ticket", "Date", "Statut", "Sous-total HT", "TVA", "Remise", "Total", "Articles"]];
+  salesList.forEach(t => {
+    rows.push([
+      t.ticket_number, new Date(t.created_at).toLocaleString("fr-FR"), t.status,
+      t.subtotal.toFixed(2), t.tax_total.toFixed(2), t.discount_total.toFixed(2), t.total.toFixed(2),
+      t.items.map(i => `${i.quantity}x ${i.product_name}`).join("; "),
+    ]);
+  });
+  downloadCsv(`ventes_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+}
+
+function exportReportsCsv() {
+  const rows = [["RAPPORT", new Date().toLocaleDateString("fr-FR")], []];
+  rows.push(["Resume"]);
+  rows.push(["Chiffre d'affaires (HT)", lastProfit.revenue.toFixed(2)]);
+  rows.push(["Cout des marchandises", lastProfit.cost.toFixed(2)]);
+  rows.push(["Marge", lastProfit.profit.toFixed(2)]);
+  rows.push(["TVA collectee", lastProfit.tax_collected.toFixed(2)]);
+  rows.push([]);
+  rows.push(["Ventes par jour (7 derniers jours)"]);
+  rows.push(["Date", "Commandes", "Chiffre d'affaires"]);
+  lastSalesByDay.forEach(d => rows.push([d.day, d.orders, d.revenue.toFixed(2)]));
+  rows.push([]);
+  rows.push(["Meilleures ventes"]);
+  rows.push(["Produit", "Quantite vendue", "Chiffre d'affaires"]);
+  lastBestSellers.forEach(b => rows.push([b.product_name, b.qty_sold, b.revenue.toFixed(2)]));
+  downloadCsv(`rapport_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+}
+
+function printReportsPdf() {
+  const dateStr = new Date().toLocaleDateString("fr-FR");
+  const rowsHtml = lastSalesByDay.map(d => `<tr><td>${d.day}</td><td>${d.orders}</td><td>${d.revenue.toFixed(2)}</td></tr>`).join("");
+  const bestHtml = lastBestSellers.map(b => `<tr><td>${b.product_name}</td><td>${b.qty_sold}</td><td>${b.revenue.toFixed(2)}</td></tr>`).join("");
+  document.getElementById("print-report").innerHTML = `
+    <div style="font-family:-apple-system,sans-serif;padding:20px">
+      <h1 style="font-size:20px;margin-bottom:2px">Rapport commercial</h1>
+      <p style="color:#666;font-size:12px;margin-top:0">${dateStr}</p>
+      <h2 style="font-size:14px;margin-top:20px">Resume</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr><td style="padding:4px 0">Chiffre d'affaires (HT)</td><td style="text-align:right">${lastProfit.revenue.toFixed(2)} MAD</td></tr>
+        <tr><td style="padding:4px 0">Cout des marchandises</td><td style="text-align:right">${lastProfit.cost.toFixed(2)} MAD</td></tr>
+        <tr><td style="padding:4px 0;font-weight:bold">Marge</td><td style="text-align:right;font-weight:bold">${lastProfit.profit.toFixed(2)} MAD</td></tr>
+        <tr><td style="padding:4px 0">TVA collectee</td><td style="text-align:right">${lastProfit.tax_collected.toFixed(2)} MAD</td></tr>
+      </table>
+      <h2 style="font-size:14px;margin-top:20px">Ventes des 7 derniers jours</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:4px 0">Date</th><th style="text-align:left">Commandes</th><th style="text-align:right">Chiffre d'affaires</th></tr>
+        ${rowsHtml}
+      </table>
+      <h2 style="font-size:14px;margin-top:20px">Meilleures ventes</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:4px 0">Produit</th><th style="text-align:left">Quantite</th><th style="text-align:right">Chiffre d'affaires</th></tr>
+        ${bestHtml}
+      </table>
+    </div>
+  `;
+  window.print();
+}
+
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.className = "toast show";
+  setTimeout(() => { toast.className = "toast"; }, 2500);
+}
+
+switchTab("inventory");
+loadAll();
+</script>
+
+</body>
+</html>

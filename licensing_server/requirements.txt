@@ -1,0 +1,4 @@
+Flask>=3.0
+cryptography>=42.0
+argon2-cffi>=23.1     # password hashing (argon2id)
+gunicorn>=22.0         # production WSGI server

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activation - Commerce Manager</title>
+<style>
+  :root {
+    --bg: #F7F6F2; --surface: #FFFFFF; --border: #DEDBD1;
+    --text: #1C1B18; --text-muted: #78766C;
+    --accent: #1F4B3F; --accent-light: #E4EFE9;
+    --danger: #B23A2E; --danger-light: #F7E7E5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text);
+  }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+          padding: 32px; width: 380px; max-width: 90vw; }
+  .brand { font-weight: 700; font-size: 18px; margin-bottom: 4px; color: var(--accent); }
+  .sub { font-size: 13px; color: var(--text-muted); margin-bottom: 22px; }
+  label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em;
+          margin-bottom: 4px; display: block; }
+  input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+          font-size: 14px; font-family: inherit; margin-bottom: 14px; }
+  input:focus { outline: none; border-color: var(--accent); }
+  button { width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--accent);
+           color: white; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  .msg { font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; display: none; }
+  .msg.error { display: block; background: var(--danger-light); color: var(--danger); }
+  .msg.info { display: block; background: var(--accent-light); color: var(--accent); }
+  .blocked-icon { font-size: 32px; margin-bottom: 10px; }
+  #loginView, #blockedView { display: none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img id="login-logo" src="" alt="" style="display:none;max-height:40px;max-width:100%;object-fit:contain;margin-bottom:8px;">
+    <div class="brand">Commerce Manager</div>
+
+    <div id="loadingView">
+      <div class="sub">Verification de la licence...</div>
+    </div>
+
+    <div id="loginView">
+      <div class="sub">Connectez-vous pour activer votre licence.</div>
+      <div id="loginMsg" class="msg error"></div>
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="username">
+      <label for="password">Mot de passe</label>
+      <input type="password" id="password" autocomplete="current-password">
+      <button id="loginBtn" onclick="doLogin()">Se connecter et activer</button>
+    </div>
+
+    <div id="blockedView">
+      <div class="blocked-icon">&#128274;</div>
+      <div id="blockedMsg" class="sub" style="white-space: pre-line; color: var(--text);"></div>
+      <button onclick="showLogin()">Se connecter avec un autre compte</button>
+    </div>
+  </div>
+
+  <script>
+    async function loadBranding() {
+      try {
+        const settings = await fetch('/api/settings').then(r => r.json());
+        if (settings.company_logo_filename) {
+          const img = document.getElementById('login-logo');
+          img.src = `/uploads/company/${settings.company_logo_filename}`;
+          img.style.display = 'block';
+        }
+        if (settings.store_name) {
+          document.querySelector('.brand').textContent = settings.store_name;
+        }
+      } catch (e) {
+        // Branding not reachable yet - keep the generic "Commerce Manager" label.
+      }
+    }
+
+    async function checkStatus() {
+      try {
+        const resp = await fetch('/api/license/status');
+        const data = await resp.json();
+        if (data.ok) {
+          window.location.href = '/';
+          return;
+        }
+        if (data.result === 'no_license') {
+          showLogin();
+        } else {
+          showBlocked(data.message || "Licence invalide.");
+        }
+      } catch (e) {
+        showLogin();
+      }
+    }
+
+    function showLogin() {
+      document.getElementById('loadingView').style.display = 'none';
+      document.getElementById('blockedView').style.display = 'none';
+      document.getElementById('loginView').style.display = 'block';
+    }
+
+    function showBlocked(message) {
+      document.getElementById('loadingView').style.display = 'none';
+      document.getElementById('loginView').style.display = 'none';
+      document.getElementById('blockedView').style.display = 'block';
+      document.getElementById('blockedMsg').textContent = message;
+    }
+
+    async function doLogin() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('loginBtn');
+      const msg = document.getElementById('loginMsg');
+      msg.style.display = 'none';
+
+      if (!email || !password) {
+        msg.textContent = 'Veuillez remplir tous les champs.';
+        msg.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Connexion...';
+
+      try {
+        const resp = await fetch('/api/license/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          window.location.href = '/';
+        } else {
+          msg.textContent = data.message || "Echec de l'activation.";
+          msg.style.display = 'block';
+        }
+      } catch (e) {
+        msg.textContent = "Impossible de contacter le serveur. Verifiez votre connexion internet.";
+        msg.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Se connecter et activer';
+      }
+    }
+
+    document.getElementById('password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doLogin();
+    });
+
+    checkStatus();
+    loadBranding();
+  </script>
+</body>
+</html>

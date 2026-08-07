@@ -1,0 +1,461 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Commerce Manager — Admin Dashboard</title>
+  <style>
+    :root { --bg:#0f172a; --surface:#1e293b; --border:#334155; --text:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --danger:#ef4444; --warn:#f59e0b; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); margin:0; padding:2rem; }
+    h1 { font-size:1.3rem; margin-bottom: 1.2rem; }
+    h3 { font-size: 1em; margin-top:0; }
+    input, select, textarea { padding:.5rem; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-family:inherit; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; }
+    th, td { text-align:left; padding:.6rem; border-bottom:1px solid var(--border); font-size:.9em; }
+    button { padding:.4rem .8rem; margin-right:.3rem; border:0; border-radius:4px; cursor:pointer; font-size:.8em; }
+    .btn-trial { background:var(--warn); color:#0f172a; }
+    .btn-paid { background:var(--accent); color:#0f172a; }
+    .btn-disable { background:#64748b; color:white; }
+    .btn-revoke { background:var(--danger); color:white; }
+    .btn-reset { background:#3b82f6; color:white; }
+    .btn-edit { background:#8b5cf6; color:white; }
+    .btn-delete { background:var(--danger); color:white; }
+    .btn-secondary { background:var(--surface); color:var(--text); border:1px solid var(--border); }
+    .status-trial { color:var(--warn); }
+    .status-professional { color:var(--accent); }
+    .status-expired { color:var(--danger); }
+    .status-none { color:var(--muted); }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; }
+
+    .tabs { display:flex; gap:.5rem; margin-bottom:1.2rem; border-bottom:1px solid var(--border); }
+    .tab-btn { background:none; border:none; padding:.7rem 1rem; color:var(--muted); font-size:.9em; cursor:pointer; border-bottom:2px solid transparent; margin:0; }
+    .tab-btn.active { color:var(--text); border-bottom-color:var(--accent); }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+
+    .stats-row { display:grid; grid-template-columns:repeat(6, 1fr); gap:12px; margin-bottom:1.5rem; }
+    .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; }
+    .stat-label { font-size:.7em; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:6px; }
+    .stat-value { font-size:1.4em; font-weight:700; }
+    .stat-value.warn { color:var(--warn); }
+    .stat-value.accent { color:var(--accent); }
+    .stat-value.danger { color:var(--danger); }
+
+    .filters-row { display:flex; gap:.6rem; margin-bottom:1rem; flex-wrap:wrap; align-items:center; }
+    .expiring-banner { background:#3f2d0f; border:1px solid var(--warn); color:var(--warn); border-radius:8px; padding:10px 14px; margin-bottom:1rem; font-size:.85em; }
+
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); align-items:center; justify-content:center; z-index:100; }
+    .modal-overlay.show { display:flex; }
+    .modal { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px; width:360px; }
+    .modal-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:14px; }
+    .field { width:100%; margin-bottom:10px; }
+    .field-label { display:block; font-size:.75em; color:var(--muted); margin-bottom:4px; }
+
+    .msg { margin-top:8px; font-size:.85em; }
+    .msg.error { color:#f87171; }
+    .msg.ok { color:#22c55e; }
+  </style>
+</head>
+<body>
+  {% if not is_logged_in %}
+    <p>Not logged in. <a href="/admin/login" style="color:#60a5fa;">Go to login</a></p>
+  {% else %}
+    <h1>Commerce Manager — Admin</h1>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="clients" onclick="switchTab('clients')">Clients</button>
+      <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">Journal d'activité</button>
+      <button class="tab-btn" data-tab="account" onclick="switchTab('account')">Mon compte</button>
+    </div>
+
+    <!-- Clients tab -->
+    <div class="tab-panel active" id="tab-clients">
+      <div class="stats-row" id="stats-row"></div>
+      <div id="expiring-banner-wrap"></div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3>Add New Customer</h3>
+        <input id="newEmail" placeholder="Email" style="width:220px;">
+        <input id="newPassword" type="text" placeholder="Password (min 8 chars)" style="width:200px;">
+        <input id="newFullName" placeholder="Full name (optional)" style="width:180px;">
+        <button class="btn-paid" onclick="createCustomer()">Create Account</button>
+        <div id="createMsg" class="msg"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3>Prix mensuel (pour le calcul du MRR)</h3>
+        <input id="monthlyPrice" type="number" step="0.01" placeholder="ex: 199" style="width:140px;">
+        <span style="color:var(--muted); font-size:.85em;">MAD / mois / client payant</span>
+        <button class="btn-secondary" onclick="saveMonthlyPrice()">Enregistrer</button>
+        <div id="priceMsg" class="msg"></div>
+      </div>
+
+      <div class="filters-row">
+        <input id="search" placeholder="Search by email or name..." style="width:260px;">
+        <select id="statusFilter">
+          <option value="">Tous les statuts</option>
+          <option value="trial">Trial</option>
+          <option value="professional">Professional</option>
+          <option value="expired">Expired</option>
+          <option value="none">Aucune licence</option>
+        </select>
+        <select id="sortBy">
+          <option value="created_at">Trier par date de création</option>
+          <option value="email">Trier par email</option>
+          <option value="full_name">Trier par nom</option>
+        </select>
+        <select id="sortDir">
+          <option value="desc">Décroissant</option>
+          <option value="asc">Croissant</option>
+        </select>
+        <button onclick="loadCustomers()">Filtrer</button>
+        <button class="btn-delete" id="bulkDeleteBtn" style="display:none" onclick="bulkDelete()">Supprimer la sélection</button>
+      </div>
+
+      <table id="customerTable">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+            <th>Email</th><th>Name</th><th>License</th><th>Status</th><th>Expires</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Logs tab -->
+    <div class="tab-panel" id="tab-logs">
+      <div class="filters-row">
+        <select id="logEventFilter">
+          <option value="">Tous les évènements</option>
+          <option value="login">login</option>
+          <option value="issue_trial">issue_trial</option>
+          <option value="issue_paid">issue_paid</option>
+          <option value="reactivate">reactivate</option>
+          <option value="device_reset">device_reset</option>
+          <option value="disable">disable</option>
+          <option value="revoke">revoke</option>
+          <option value="admin_create_customer">admin_create_customer</option>
+          <option value="admin_edit_customer">admin_edit_customer</option>
+          <option value="admin_delete_customer">admin_delete_customer</option>
+        </select>
+        <button onclick="loadLogs()">Filtrer</button>
+      </div>
+      <table>
+        <thead><tr><th>Date</th><th>Évènement</th><th>Client</th><th>Détail</th></tr></thead>
+        <tbody id="logsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Account tab -->
+    <div class="tab-panel" id="tab-account">
+      <div class="card" style="max-width:420px;">
+        <h3>Mon compte</h3>
+        <div class="field">
+          <span class="field-label">Nom complet</span>
+          <input class="field" id="me-full-name" style="width:100%">
+        </div>
+        <div class="field">
+          <span class="field-label">Email</span>
+          <input class="field" id="me-email" style="width:100%">
+        </div>
+        <div class="field">
+          <span class="field-label">Nouveau mot de passe (laisser vide pour ne pas changer)</span>
+          <input class="field" id="me-new-password" type="password" style="width:100%">
+        </div>
+        <div class="field">
+          <span class="field-label">Mot de passe actuel (requis pour changer l'email ou le mot de passe)</span>
+          <input class="field" id="me-current-password" type="password" style="width:100%">
+        </div>
+        <button class="btn-paid" onclick="saveMyAccount()">Enregistrer</button>
+        <div id="meMsg" class="msg"></div>
+      </div>
+    </div>
+
+    <!-- Edit customer modal -->
+    <div class="modal-overlay" id="editModal">
+      <div class="modal">
+        <h3>Modifier le client</h3>
+        <div class="field">
+          <span class="field-label">Email</span>
+          <input class="field" id="edit-email" style="width:100%">
+        </div>
+        <div class="field">
+          <span class="field-label">Nom complet</span>
+          <input class="field" id="edit-full-name" style="width:100%">
+        </div>
+        <div id="editMsg" class="msg"></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" onclick="closeEditModal()">Annuler</button>
+          <button class="btn-paid" onclick="saveCustomerEdit()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <script>
+    const adminHeaders = () => ({'Content-Type': 'application/json'});
+    let currentCustomers = [];
+    let editingCustomerId = null;
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+      if (tab === 'logs') loadLogs();
+      if (tab === 'account') loadMyAccount();
+    }
+
+    // ------------------------------------------------------------ stats ----
+    async function loadStats() {
+      const resp = await fetch('/api/admin/stats', {credentials: 'same-origin'});
+      if (!resp.ok) return;
+      const s = await resp.json();
+
+      document.getElementById('monthlyPrice').value = s.monthly_price ?? '';
+
+      const cards = [
+        { label: 'Total clients', value: s.total_customers, cls: '' },
+        { label: 'Trials actifs', value: s.active_trials, cls: 'warn' },
+        { label: 'Payants actifs', value: s.active_paid, cls: 'accent' },
+        { label: 'Expirés', value: s.expired, cls: 'danger' },
+        { label: 'Sans licence', value: s.no_license, cls: '' },
+        { label: 'MRR estimé', value: s.mrr !== null ? `${s.mrr.toFixed(0)} MAD` : '—', cls: 'accent' },
+      ];
+      document.getElementById('stats-row').innerHTML = cards.map(c => `
+        <div class="stat-card">
+          <div class="stat-label">${c.label}</div>
+          <div class="stat-value ${c.cls}">${c.value}</div>
+        </div>
+      `).join('');
+
+      const bannerWrap = document.getElementById('expiring-banner-wrap');
+      if (s.expiring_soon && s.expiring_soon.length) {
+        bannerWrap.innerHTML = `<div class="expiring-banner">⚠ ${s.expiring_soon.length} licence(s) expirent dans les 7 prochains jours : ${
+          s.expiring_soon.map(l => `${l.email} (${new Date(l.expires_at*1000).toLocaleDateString()})`).join(', ')
+        }</div>`;
+      } else {
+        bannerWrap.innerHTML = '';
+      }
+    }
+
+    async function saveMonthlyPrice() {
+      const val = document.getElementById('monthlyPrice').value;
+      const msg = document.getElementById('priceMsg');
+      const resp = await fetch('/api/admin/settings', {
+        method: 'POST', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify({ monthly_price: val }),
+      });
+      msg.className = resp.ok ? 'msg ok' : 'msg error';
+      msg.textContent = resp.ok ? 'Enregistré.' : 'Erreur.';
+      if (resp.ok) loadStats();
+    }
+
+    // -------------------------------------------------------- customers ----
+    async function createCustomer() {
+      const email = document.getElementById('newEmail').value.trim();
+      const password = document.getElementById('newPassword').value;
+      const full_name = document.getElementById('newFullName').value.trim();
+      const msg = document.getElementById('createMsg');
+      msg.className = 'msg error';
+      msg.textContent = '';
+
+      if (!email || !password) {
+        msg.textContent = 'Email and password are required.';
+        return;
+      }
+
+      const resp = await fetch('/api/admin/customers', {
+        method: 'POST', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify({ email, password, full_name }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        msg.className = 'msg ok';
+        msg.textContent = `Created: ${data.email}`;
+        document.getElementById('newEmail').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('newFullName').value = '';
+        loadCustomers();
+        loadStats();
+      } else {
+        msg.textContent = data.message || 'Failed to create account.';
+      }
+    }
+
+    async function loadCustomers() {
+      const q = document.getElementById('search').value;
+      const status = document.getElementById('statusFilter').value;
+      const sortBy = document.getElementById('sortBy').value;
+      const sortDir = document.getElementById('sortDir').value;
+      const params = new URLSearchParams({ search: q, status, sort_by: sortBy, sort_dir: sortDir });
+
+      const resp = await fetch(`/api/admin/customers?${params}`, {credentials: 'same-origin'});
+      const data = await resp.json();
+      currentCustomers = data.customers;
+      const tbody = document.querySelector('#customerTable tbody');
+      tbody.innerHTML = '';
+      for (const c of data.customers) {
+        const lic = c.license;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox" class="row-check" value="${c.id}" onchange="updateBulkButton()"></td>
+          <td>${c.email}</td>
+          <td>${c.full_name || ''}</td>
+          <td>${lic ? lic.license_type : '—'}</td>
+          <td class="status-${c.computed_status}">${c.computed_status}</td>
+          <td>${lic && lic.expires_at ? new Date(lic.expires_at*1000).toLocaleDateString() : (lic ? 'never' : '—')}</td>
+          <td>
+            <button class="btn-trial" onclick="issue('${c.id}','trial')">Trial</button>
+            <button class="btn-paid" onclick="issue('${c.id}','professional')">Paid</button>
+            ${lic ? `<button class="btn-disable" onclick="disableLic('${lic.id}')">Disable</button>` : ''}
+            ${lic ? `<button class="btn-revoke" onclick="revokeLic('${lic.id}')">Revoke</button>` : ''}
+            <button class="btn-reset" onclick="resetDevice('${c.id}')">Reset Device</button>
+            <button class="btn-edit" onclick="openEditModal('${c.id}')">Edit</button>
+            <button class="btn-delete" onclick="deleteCustomer('${c.id}', '${c.email.replace(/'/g, "\\'")}')">Delete</button>
+          </td>`;
+        tbody.appendChild(tr);
+      }
+      updateBulkButton();
+    }
+
+    function toggleSelectAll(checkbox) {
+      document.querySelectorAll('.row-check').forEach(c => { c.checked = checkbox.checked; });
+      updateBulkButton();
+    }
+    function updateBulkButton() {
+      const checked = document.querySelectorAll('.row-check:checked').length;
+      const btn = document.getElementById('bulkDeleteBtn');
+      btn.style.display = checked > 0 ? '' : 'none';
+      btn.textContent = `Supprimer la sélection (${checked})`;
+    }
+    async function bulkDelete() {
+      const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(c => c.value);
+      if (!ids.length) return;
+      if (!confirm(`Supprimer définitivement ${ids.length} client(s) ? Cette action est irréversible.`)) return;
+      await fetch('/api/admin/customers/bulk-delete', {
+        method: 'POST', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify({ ids }),
+      });
+      loadCustomers();
+      loadStats();
+    }
+
+    async function deleteCustomer(id, email) {
+      if (!confirm(`Supprimer définitivement le compte "${email}" ? Cette action est irréversible.`)) return;
+      await fetch(`/api/admin/customers/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+      loadCustomers();
+      loadStats();
+    }
+
+    function openEditModal(id) {
+      const c = currentCustomers.find(x => x.id === id);
+      if (!c) return;
+      editingCustomerId = id;
+      document.getElementById('edit-email').value = c.email;
+      document.getElementById('edit-full-name').value = c.full_name || '';
+      document.getElementById('editMsg').textContent = '';
+      document.getElementById('editModal').classList.add('show');
+    }
+    function closeEditModal() {
+      document.getElementById('editModal').classList.remove('show');
+    }
+    async function saveCustomerEdit() {
+      const email = document.getElementById('edit-email').value.trim();
+      const full_name = document.getElementById('edit-full-name').value.trim();
+      const msg = document.getElementById('editMsg');
+      const resp = await fetch(`/api/admin/customers/${editingCustomerId}`, {
+        method: 'PATCH', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify({ email, full_name }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        closeEditModal();
+        loadCustomers();
+      } else {
+        msg.className = 'msg error';
+        msg.textContent = data.message || 'Erreur.';
+      }
+    }
+
+    async function issue(customerId, type) {
+      const deviceId = prompt('Device ID to bind this license to (leave blank if customer will activate themselves):');
+      if (deviceId === null) return;
+      await fetch(`/api/admin/licenses/${type}`, {
+        method: 'POST', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify({customer_id: customerId, device_id: deviceId}),
+      });
+      loadCustomers();
+      loadStats();
+    }
+
+    async function disableLic(licId) {
+      await fetch(`/api/admin/licenses/${licId}/disable`, {method: 'POST', credentials: 'same-origin'});
+      loadCustomers();
+      loadStats();
+    }
+    async function revokeLic(licId) {
+      if (!confirm('Revoke this license permanently?')) return;
+      await fetch(`/api/admin/licenses/${licId}/revoke`, {method: 'POST', credentials: 'same-origin'});
+      loadCustomers();
+      loadStats();
+    }
+    async function resetDevice(customerId) {
+      await fetch(`/api/admin/devices/reset`, {
+        method: 'POST', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify({customer_id: customerId}),
+      });
+      loadCustomers();
+    }
+
+    // -------------------------------------------------------------- logs ----
+    async function loadLogs() {
+      const eventType = document.getElementById('logEventFilter').value;
+      const params = new URLSearchParams({ event_type: eventType });
+      const resp = await fetch(`/api/admin/logs?${params}`, {credentials: 'same-origin'});
+      const data = await resp.json();
+      document.getElementById('logsBody').innerHTML = data.logs.map(l => `
+        <tr>
+          <td>${new Date(l.created_at*1000).toLocaleString()}</td>
+          <td>${l.event_type}</td>
+          <td>${l.customer_email || '—'}</td>
+          <td style="font-size:.8em;color:var(--muted)">${l.detail}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" style="color:var(--muted)">Aucune entrée</td></tr>';
+    }
+
+    // ----------------------------------------------------------- account ----
+    async function loadMyAccount() {
+      const resp = await fetch('/api/admin/me', {credentials: 'same-origin'});
+      if (!resp.ok) return;
+      const me = await resp.json();
+      document.getElementById('me-full-name').value = me.full_name || '';
+      document.getElementById('me-email').value = me.email || '';
+      document.getElementById('me-new-password').value = '';
+      document.getElementById('me-current-password').value = '';
+    }
+    async function saveMyAccount() {
+      const payload = {
+        full_name: document.getElementById('me-full-name').value.trim(),
+        email: document.getElementById('me-email').value.trim(),
+        new_password: document.getElementById('me-new-password').value,
+        current_password: document.getElementById('me-current-password').value,
+      };
+      const msg = document.getElementById('meMsg');
+      const resp = await fetch('/api/admin/me', {
+        method: 'PATCH', credentials: 'same-origin', headers: adminHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      msg.className = resp.ok ? 'msg ok' : 'msg error';
+      msg.textContent = data.message || (resp.ok ? 'Enregistré.' : 'Erreur.');
+      if (resp.ok) {
+        document.getElementById('me-new-password').value = '';
+        document.getElementById('me-current-password').value = '';
+      }
+    }
+
+    loadCustomers();
+    loadStats();
+  </script>
+</body>
+</html>

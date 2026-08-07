@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<script>
+(function () {
+  try {
+    var t = JSON.parse(localStorage.getItem("cm_theme") || "null");
+    if (!t) return;
+    var isDark = t.mode === "dark" || (t.mode === "auto" && window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+    var palette = isDark
+      ? { bg: "#17181C", surface: "#1F2126", border: "#33353B", text: "#EDEDEE", textMuted: "#9B9DA3" }
+      : { bg: "#F7F6F2", surface: "#FFFFFF", border: "#DEDBD1", text: "#1C1B18", textMuted: "#78766C" };
+    var root = document.documentElement.style;
+    root.setProperty("--bg", palette.bg);
+    root.setProperty("--surface", palette.surface);
+    root.setProperty("--border", palette.border);
+    root.setProperty("--text", palette.text);
+    root.setProperty("--text-muted", palette.textMuted);
+    root.setProperty("--accent", t.accent || "#1F4B3F");
+  } catch (e) {}
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documents</title>
+<style>
+  :root {
+    --bg: #F7F6F2; --surface: #FFFFFF; --border: #DEDBD1;
+    --text: #1C1B18; --text-muted: #78766C;
+    --accent: #1F4B3F; --accent-light: #E4EFE9;
+    --danger: #B23A2E; --danger-light: #F7E7E5;
+    --warn: #B98A2E; --warn-light: #FBF0DC;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; display: flex; min-height: 100vh; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  main { flex: 1; overflow-y: auto; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tab-btn { padding: 9px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer; }
+  .tab-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
+  .toolbar input, .toolbar select { padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; font-family: inherit; }
+  .toolbar input { flex: 1; }
+  .btn { padding: 9px 16px; border: none; border-radius: 8px; background: var(--accent); color: white; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn.small { padding: 5px 8px; font-size: 11px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  td { padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  .empty { padding: 30px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+  .status-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .status-draft { background: var(--bg); color: var(--text-muted); }
+  .status-sent { background: var(--warn-light); color: var(--warn); }
+  .status-paid, .status-accepted, .status-delivered, .status-issued { background: var(--accent-light); color: var(--accent); }
+  .status-partial { background: var(--warn-light); color: var(--warn); }
+  .status-unpaid, .status-rejected, .status-expired, .status-cancelled { background: var(--danger-light); color: var(--danger); }
+
+  .row-actions { display: flex; gap: 4px; flex-wrap: wrap; max-width: 220px; }
+  .row-actions select { font-family: inherit; }
+  table { table-layout: fixed; }
+  th:last-child, td:last-child { width: 230px; }
+
+  /* --- Editor modal --- */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(28,27,24,0.5); align-items: center; justify-content: center; z-index: 100; padding: 24px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; width: 100%; max-width: 800px; max-height: 90vh; overflow-y: auto; padding: 24px; }
+  .modal h3 { margin: 0 0 16px; }
+  .field-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; display: block; }
+  .field-input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; margin-bottom: 12px; font-family: inherit; }
+  .field-row { display: flex; gap: 12px; }
+  .field-row > div { flex: 1; }
+  .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin: 18px 0 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .section-title:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+  .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 12px; }
+
+  .items-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  .items-table th { font-size: 10px; padding: 6px 4px; }
+  .items-table td { padding: 4px; border-bottom: none; }
+  .items-table input { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-family: inherit; }
+  .items-table .qty-col, .items-table .price-col, .items-table .pct-col { width: 70px; }
+  .items-table .total-col { width: 80px; text-align: right; font-family: "SF Mono", monospace; font-size: 12px; padding-right: 4px; }
+  .items-table .del-col { width: 30px; }
+  .row-del-btn { border: none; background: none; color: var(--danger); cursor: pointer; font-size: 15px; }
+
+  .totals-box { margin-left: auto; width: 260px; margin-top: 12px; }
+  .totals-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; }
+  .totals-row.grand { font-weight: 700; font-size: 15px; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; }
+  .totals-row.balance { color: var(--danger); font-weight: 600; }
+
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(10px); background: var(--text); color: white; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: .2s; z-index: 300; }
+  .toast.toast-error { background: var(--danger); }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* --- Print view: A4 format --- */
+  #print-view { display: none; }
+  @media print {
+    body > *:not(#print-view) { display: none !important; }
+    #print-view { display: block !important; }
+    @page { size: A4; margin: 14mm; }
+  }
+  .doc-print { max-width: 210mm; margin: 0 auto; padding: 14mm; font-size: 12px; color: #1C1B18; background: white; box-sizing: border-box; display: flex; flex-direction: column; }
+  .doc-print-body { flex: 1; }
+
+  .doc-print-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 2px solid var(--doc-accent, #1F4B3F); }
+  .doc-print-header img { max-height: 56px; max-width: 200px; object-fit: contain; margin-bottom: 6px; display: block; }
+  .doc-print-company-name { font-weight: 700; font-size: 15px; color: var(--doc-accent, #1F4B3F); }
+  .doc-print-company { font-size: 10.5px; color: #555; line-height: 1.5; margin-top: 2px; }
+  .doc-print-meta { text-align: right; }
+  .doc-print-meta h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: .04em; color: var(--doc-accent, #1F4B3F); }
+  .doc-print-meta div { font-size: 11.5px; color: #444; }
+
+  .doc-print-parties { display: flex; gap: 16px; margin-bottom: 18px; }
+  .doc-print-party { flex: 1; border: 1px solid #DEDBD1; border-radius: 6px; padding: 10px 12px; font-size: 11.5px; line-height: 1.6; }
+  .doc-print-party-label { font-size: 9px; font-weight: 700; letter-spacing: .06em; color: #888; margin-bottom: 4px; }
+  .doc-print-party strong { font-size: 12.5px; }
+
+  .doc-print-object { font-size: 12px; font-weight: 600; margin-bottom: 14px; }
+
+  .doc-print-items { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  .doc-print-items th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .03em; color: white; background: var(--doc-accent, #1F4B3F); padding: 8px 8px; }
+  .doc-print-items th:first-child { border-radius: 5px 0 0 0; }
+  .doc-print-items th:last-child { border-radius: 0 5px 0 0; text-align: right; }
+  .doc-print-items td { padding: 7px 8px; border-bottom: 1px solid #EAE8E1; font-size: 11.5px; }
+  .doc-print-items tr:nth-child(even) td { background: #FAFAF7; }
+  .doc-print-items .num { text-align: right; font-family: "SF Mono", monospace; }
+  .doc-print-items .num-col { width: 26px; color: #999; }
+
+  .doc-print-totals-row { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+  .doc-print-totals { width: 260px; }
+  .doc-print-totals div { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11.5px; }
+  .doc-print-totals .grand { font-weight: 700; font-size: 14px; border-top: 1.5px solid var(--doc-accent, #1F4B3F); margin-top: 4px; padding-top: 8px; color: var(--doc-accent, #1F4B3F); }
+
+  .doc-print-words { font-size: 11px; margin-bottom: 18px; padding: 8px 0; border-top: 1px solid #EAE8E1; border-bottom: 1px solid #EAE8E1; }
+  .doc-print-words strong { text-transform: capitalize; }
+
+  .doc-print-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 24px; }
+  .doc-print-terms-box { font-size: 10.5px; color: #555; max-width: 320px; }
+  .doc-print-terms-box .label { font-size: 9px; font-weight: 700; letter-spacing: .05em; color: #888; margin-bottom: 3px; }
+  .doc-print-stamp-box { width: 190px; height: 90px; border: 1px solid #DEDBD1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #999; text-align: center; padding: 8px; }
+
+  .doc-print-signature { margin-top: 28px; display: flex; justify-content: space-between; }
+  .doc-print-signature div { width: 200px; border-top: 1px solid #1C1B18; padding-top: 6px; font-size: 11px; text-align: center; color: #555; }
+
+  .doc-print-footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #DEDBD1; text-align: center; font-size: 9.5px; color: #888; }
+
+  /* --- Sidebar (shared shell) --- */
+  .sidebar { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; padding: 20px 12px; height: 100vh; position: sticky; top: 0; background: var(--surface); border-right: 1px solid var(--border); }
+  .sidebar .brand { font-weight: 600; font-size: 15px; padding: 4px 12px 20px; margin-right: 0; display: block; }
+  .sidebar a { display: block; padding: 10px 12px; border-radius: 8px; text-decoration: none; color: var(--text-muted); font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .sidebar a.active { background: var(--accent-light); color: var(--accent); }
+  .notif-bell-wrap { position: relative; margin-top: auto; margin-left: 0; }
+  .notif-bell { width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px; border: none; background: none; color: var(--text-muted); font-size: 14px; font-weight: 500; cursor: pointer; position: relative; font-family: inherit; }
+  .notif-badge { display: none; position: absolute; top: 2px; right: 6px; background: var(--danger); color: white; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; min-width: 14px; text-align: center; }
+  .notif-dropdown { display: none; position: absolute; bottom: 100%; left: 0; width: 300px; max-height: 400px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; margin-bottom: 6px; }
+  .notif-dropdown.show { display: block; }
+  .notif-dropdown-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+  .notif-dropdown-header button { background: none; border: none; color: var(--accent); font-size: 11px; cursor: pointer; }
+  .notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-item.notif-unread { background: var(--accent-light); }
+  .notif-item.notif-warn { background: var(--danger-light); }
+  .notif-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .notif-empty { padding: 20px; text-align: center; font-size: 12px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <span class="brand">Commerce manager</span>
+  <a href="dashboard.html">Accueil</a>
+  <a href="index.html">Caisse</a>
+  <a href="management.html">Gestion</a>
+  <a href="staff.html">Personnel</a>
+  <a href="documents.html" class="active">Documents</a>
+  <a href="branding.html">Branding</a>
+  <a href="settings.html">Parametres</a>
+  <div class="notif-bell-wrap" id="notif-bell-wrap">
+    <button class="notif-bell" onclick="toggleNotifDropdown()">Notifications<span class="notif-badge" id="notif-badge"></span></button>
+    <div class="notif-dropdown" id="notif-dropdown">
+      <div class="notif-dropdown-header">
+        <span>Notifications</span>
+        <button onclick="markAllNotificationsRead()">Tout marquer lu</button>
+      </div>
+      <div id="notif-list"></div>
+    </div>
+  </div>
+</aside>
+
+<main>
+  <h1>Documents</h1>
+
+  <div class="tabs" id="type-tabs"></div>
+
+  <div class="toolbar">
+    <input id="search-input" placeholder="Rechercher un numero, un client..." oninput="loadDocuments()">
+    <select id="status-filter" onchange="loadDocuments()"></select>
+    <button class="btn" onclick="openEditor(null)">+ Nouveau</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Numero</th><th>Date</th><th>Client</th><th>Total</th><th>Statut</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="documents-list"></tbody>
+  </table>
+</main>
+
+<!-- Editor modal -->
+<div class="modal-overlay" id="editor-modal">
+  <div class="modal">
+    <h3 id="editor-title">Nouveau document</h3>
+    <form id="editor-form" onsubmit="saveDocument(event)">
+
+      <div class="section-title">Informations generales</div>
+      <div class="field-row">
+        <div>
+          <span class="field-label">Date d'emission</span>
+          <input class="field-input" id="doc_issue_date" type="date" required>
+        </div>
+        <div id="due-date-field" style="display:none">
+          <span class="field-label">Date d'echeance</span>
+          <input class="field-input" id="doc_due_date" type="date">
+        </div>
+        <div id="valid-until-field" style="display:none">
+          <span class="field-label">Valable jusqu'au</span>
+          <input class="field-input" id="doc_valid_until" type="date">
+        </div>
+        <div id="delivery-date-field" style="display:none">
+          <span class="field-label">Date de livraison</span>
+          <input class="field-input" id="doc_delivery_date" type="date">
+        </div>
+        <div>
+          <span class="field-label">Statut</span>
+          <select class="field-input" id="doc_status"></select>
+        </div>
+      </div>
+
+      <div id="bl-fields" style="display:none">
+        <div class="field-row">
+          <div>
+            <span class="field-label">Chauffeur</span>
+            <input class="field-input" id="doc_driver_name">
+          </div>
+          <div>
+            <span class="field-label">Vehicule</span>
+            <input class="field-input" id="doc_vehicle">
+          </div>
+        </div>
+        <label class="checkbox-label"><input type="checkbox" id="doc_hide_prices"> Masquer les prix sur ce bon de livraison</label>
+      </div>
+
+      <div id="avoir-fields" style="display:none">
+        <span class="field-label">Facture liee</span>
+        <select class="field-input" id="doc_linked_document_id"></select>
+        <span class="field-label">Motif</span>
+        <input class="field-input" id="doc_reason" placeholder="Ex : produit retourne, erreur de facturation...">
+      </div>
+
+      <div class="section-title">Client</div>
+      <div class="field-row">
+        <div>
+          <span class="field-label">Nom du client</span>
+          <input class="field-input" id="doc_customer_name">
+        </div>
+        <div>
+          <span class="field-label">Entreprise (optionnel)</span>
+          <input class="field-input" id="doc_customer_company">
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <span class="field-label">ICE</span>
+          <input class="field-input" id="doc_customer_ice">
+        </div>
+        <div>
+          <span class="field-label">Telephone</span>
+          <input class="field-input" id="doc_customer_phone">
+        </div>
+        <div>
+          <span class="field-label">Email</span>
+          <input class="field-input" id="doc_customer_email">
+        </div>
+      </div>
+      <span class="field-label">Adresse</span>
+      <input class="field-input" id="doc_customer_address">
+
+      <div class="section-title">Articles</div>
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="qty-col">Qte</th>
+            <th class="price-col">Prix U.</th>
+            <th class="pct-col">Remise %</th>
+            <th class="pct-col">TVA %</th>
+            <th class="total-col">Total</th>
+            <th class="del-col"></th>
+          </tr>
+        </thead>
+        <tbody id="items-body"></tbody>
+      </table>
+      <button type="button" class="btn secondary small" onclick="addItemRow()">+ Ligne</button>
+
+      <div class="totals-box" id="totals-box"></div>
+
+      <div id="amount-paid-field" style="display:none; margin-top:16px">
+        <span class="field-label">Montant paye</span>
+        <input class="field-input" id="doc_amount_paid" type="number" step="0.01" oninput="recalcTotals()">
+      </div>
+
+      <div class="section-title">Notes</div>
+      <textarea class="field-input" id="doc_notes" rows="2" placeholder="Notes visibles sur le document imprime"></textarea>
+
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" onclick="closeEditor()">Annuler</button>
+        <button type="submit" class="btn">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Print view (hidden except when printing) -->
+<div id="print-view"></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/theme.js"></script>
+<script src="/notifications.js"></script>
+<script>
+const API = "/api";
+
+const DOC_TYPES = [
+  { id: "facture", label: "Factures" },
+  { id: "devis", label: "Devis" },
+  { id: "bl", label: "Bons de Livraison" },
+  { id: "avoir", label: "Avoirs" },
+];
+
+const STATUS_OPTIONS = {
+  facture: ["draft", "sent", "paid", "partial", "unpaid", "cancelled"],
+  devis: ["draft", "sent", "accepted", "rejected", "expired"],
+  bl: ["draft", "delivered"],
+  avoir: ["draft", "issued"],
+};
+
+const STATUS_LABELS = {
+  draft: "Brouillon", sent: "Envoye", paid: "Paye", partial: "Partiel",
+  unpaid: "Impaye", cancelled: "Annule", accepted: "Accepte", rejected: "Refuse",
+  expired: "Expire", delivered: "Livre", issued: "Emis",
+};
+
+let currentType = "facture";
+let documents = [];
+let editingDocId = null;
+let itemRows = [];
+let branding = {};
+let factureOptions = [];
+
+function renderTabs() {
+  const el = document.getElementById("type-tabs");
+  el.innerHTML = DOC_TYPES.map(t => `
+    <button class="tab-btn ${t.id === currentType ? "active" : ""}" onclick="switchType('${t.id}')">${t.label}</button>
+  `).join("");
+}
+
+function switchType(type) {
+  currentType = type;
+  renderTabs();
+  renderStatusFilter();
+  loadDocuments();
+}
+
+function renderStatusFilter() {
+  const el = document.getElementById("status-filter");
+  el.innerHTML = `<option value="">Tous les statuts</option>` +
+    STATUS_OPTIONS[currentType].map(s => `<option value="${s}">${STATUS_LABELS[s]}</option>`).join("");
+}
+
+async function loadDocuments() {
+  const search = document.getElementById("search-input").value;
+  const status = document.getElementById("status-filter").value;
+  const params = new URLSearchParams({ type: currentType });
+  if (search) params.set("search", search);
+  if (status) params.set("status", status);
+
+  documents = await fetch(`${API}/documents?${params}`).then(r => r.json());
+  renderList();
+}
+
+function renderList() {
+  const el = document.getElementById("documents-list");
+  if (!documents.length) {
+    el.innerHTML = `<tr><td colspan="6" class="empty">Aucun document</td></tr>`;
+    return;
+  }
+  el.innerHTML = documents.map(d => `
+    <tr>
+      <td>${d.doc_number}</td>
+      <td>${d.issue_date}</td>
+      <td>${d.customer_name || "-"}</td>
+      <td>${d.total.toFixed(2)} MAD</td>
+      <td><span class="status-badge status-${d.status}">${STATUS_LABELS[d.status] || d.status}</span></td>
+      <td class="row-actions">
+        <button class="btn secondary small" onclick="openEditor('${d.id}')">Modifier</button>
+        <button class="btn secondary small" onclick="printDocument('${d.id}')">Imprimer</button>
+        <select class="btn secondary small" style="cursor:pointer" onchange="handleSendChoice(this, '${d.id}')">
+          <option value="">Envoyer</option>
+          <option value="email">Par Email</option>
+          <option value="whatsapp">Par WhatsApp</option>
+        </select>
+        <button class="btn secondary small" onclick="duplicateDocument('${d.id}')">Dupliquer</button>
+        <button class="btn secondary small" onclick="deleteDocument('${d.id}')">Supprimer</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+// ------------------------------------------------------------ editor ----
+function showTypeFields() {
+  document.getElementById("due-date-field").style.display = currentType === "facture" ? "" : "none";
+  document.getElementById("valid-until-field").style.display = currentType === "devis" ? "" : "none";
+  document.getElementById("delivery-date-field").style.display = currentType === "bl" ? "" : "none";
+  document.getElementById("bl-fields").style.display = currentType === "bl" ? "" : "none";
+  document.getElementById("avoir-fields").style.display = currentType === "avoir" ? "" : "none";
+  document.getElementById("amount-paid-field").style.display = currentType === "facture" ? "" : "none";
+
+  document.getElementById("doc_status").innerHTML = STATUS_OPTIONS[currentType]
+    .map(s => `<option value="${s}">${STATUS_LABELS[s]}</option>`).join("");
+}
+
+async function loadFactureOptionsIfNeeded() {
+  if (currentType !== "avoir") return;
+  factureOptions = await fetch(`${API}/documents/facture-options`).then(r => r.json());
+  const sel = document.getElementById("doc_linked_document_id");
+  sel.innerHTML = `<option value="">Aucune</option>` +
+    factureOptions.map(f => `<option value="${f.id}">${f.doc_number} - ${f.customer_name || ""} - ${f.total.toFixed(2)} MAD</option>`).join("");
+}
+
+async function openEditor(docId) {
+  editingDocId = docId;
+  showTypeFields();
+  await loadFactureOptionsIfNeeded();
+
+  document.getElementById("editor-form").reset();
+  itemRows = [];
+
+  if (docId) {
+    const doc = await fetch(`${API}/documents/${docId}`).then(r => r.json());
+    document.getElementById("editor-title").textContent = `${doc.doc_number}`;
+    document.getElementById("doc_issue_date").value = doc.issue_date || "";
+    document.getElementById("doc_due_date").value = doc.due_date || "";
+    document.getElementById("doc_valid_until").value = doc.valid_until || "";
+    document.getElementById("doc_delivery_date").value = doc.delivery_date || "";
+    document.getElementById("doc_status").value = doc.status;
+    document.getElementById("doc_driver_name").value = doc.driver_name || "";
+    document.getElementById("doc_vehicle").value = doc.vehicle || "";
+    document.getElementById("doc_hide_prices").checked = !!doc.hide_prices;
+    document.getElementById("doc_linked_document_id").value = doc.linked_document_id || "";
+    document.getElementById("doc_reason").value = doc.reason || "";
+    document.getElementById("doc_customer_name").value = doc.customer_name || "";
+    document.getElementById("doc_customer_company").value = doc.customer_company || "";
+    document.getElementById("doc_customer_ice").value = doc.customer_ice || "";
+    document.getElementById("doc_customer_phone").value = doc.customer_phone || "";
+    document.getElementById("doc_customer_email").value = doc.customer_email || "";
+    document.getElementById("doc_customer_address").value = doc.customer_address || "";
+    document.getElementById("doc_amount_paid").value = doc.amount_paid || 0;
+    document.getElementById("doc_notes").value = doc.notes || "";
+    itemRows = doc.items.map(i => ({ ...i }));
+  } else {
+    document.getElementById("editor-title").textContent = `Nouveau ${DOC_TYPES.find(t => t.id === currentType).label.replace(/s$/, "")}`;
+    document.getElementById("doc_issue_date").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("doc_amount_paid").value = 0;
+    itemRows = [{ description: "", quantity: 1, unit_price: 0, discount_pct: 0, tax_pct: 20 }];
+  }
+
+  renderItemRows();
+  document.getElementById("editor-modal").classList.add("show");
+}
+
+function closeEditor() {
+  document.getElementById("editor-modal").classList.remove("show");
+}
+
+function addItemRow() {
+  itemRows.push({ description: "", quantity: 1, unit_price: 0, discount_pct: 0, tax_pct: 20 });
+  renderItemRows();
+}
+
+function removeItemRow(idx) {
+  itemRows.splice(idx, 1);
+  renderItemRows();
+}
+
+function updateItemField(idx, field, value) {
+  itemRows[idx][field] = value;
+  recalcTotals();
+}
+
+function renderItemRows() {
+  const el = document.getElementById("items-body");
+  el.innerHTML = itemRows.map((item, idx) => `
+    <tr>
+      <td><input value="${(item.description || "").replace(/"/g, "&quot;")}" oninput="updateItemField(${idx}, 'description', this.value)"></td>
+      <td class="qty-col"><input type="number" step="0.01" value="${item.quantity}" oninput="updateItemField(${idx}, 'quantity', this.value)"></td>
+      <td class="price-col"><input type="number" step="0.01" value="${item.unit_price}" oninput="updateItemField(${idx}, 'unit_price', this.value)"></td>
+      <td class="pct-col"><input type="number" step="0.01" value="${item.discount_pct || 0}" oninput="updateItemField(${idx}, 'discount_pct', this.value)"></td>
+      <td class="pct-col"><input type="number" step="0.01" value="${item.tax_pct || 0}" oninput="updateItemField(${idx}, 'tax_pct', this.value)"></td>
+      <td class="total-col" id="line-total-${idx}">0.00</td>
+      <td class="del-col"><button type="button" class="row-del-btn" onclick="removeItemRow(${idx})">&times;</button></td>
+    </tr>
+  `).join("");
+  recalcTotals();
+}
+
+function recalcTotals() {
+  let subtotal = 0, discountTotal = 0, taxTotal = 0;
+  itemRows.forEach((item, idx) => {
+    const qty = parseFloat(item.quantity) || 0;
+    const price = parseFloat(item.unit_price) || 0;
+    const discPct = parseFloat(item.discount_pct) || 0;
+    const taxPct = parseFloat(item.tax_pct) || 0;
+    const gross = qty * price;
+    const discAmt = gross * (discPct / 100);
+    const net = gross - discAmt;
+    const taxAmt = net * (taxPct / 100);
+    const lineTotal = net + taxAmt;
+    subtotal += gross;
+    discountTotal += discAmt;
+    taxTotal += taxAmt;
+    const cell = document.getElementById(`line-total-${idx}`);
+    if (cell) cell.textContent = lineTotal.toFixed(2);
+  });
+  const total = subtotal - discountTotal + taxTotal;
+  const amountPaid = currentType === "facture" ? (parseFloat(document.getElementById("doc_amount_paid").value) || 0) : 0;
+  const balance = total - amountPaid;
+
+  const box = document.getElementById("totals-box");
+  box.innerHTML = `
+    <div class="totals-row"><span>Total HT</span><span>${subtotal.toFixed(2)} MAD</span></div>
+    <div class="totals-row"><span>Remise</span><span>-${discountTotal.toFixed(2)} MAD</span></div>
+    <div class="totals-row"><span>TVA</span><span>${taxTotal.toFixed(2)} MAD</span></div>
+    <div class="totals-row grand"><span>Total TTC</span><span>${total.toFixed(2)} MAD</span></div>
+    ${currentType === "facture" ? `
+      <div class="totals-row"><span>Paye</span><span>${amountPaid.toFixed(2)} MAD</span></div>
+      <div class="totals-row balance"><span>Reste a payer</span><span>${balance.toFixed(2)} MAD</span></div>
+    ` : ""}
+  `;
+}
+
+async function saveDocument(event) {
+  event.preventDefault();
+  const payload = {
+    doc_type: currentType,
+    status: document.getElementById("doc_status").value,
+    issue_date: document.getElementById("doc_issue_date").value,
+    due_date: document.getElementById("doc_due_date").value || null,
+    valid_until: document.getElementById("doc_valid_until").value || null,
+    delivery_date: document.getElementById("doc_delivery_date").value || null,
+    driver_name: document.getElementById("doc_driver_name").value,
+    vehicle: document.getElementById("doc_vehicle").value,
+    hide_prices: document.getElementById("doc_hide_prices").checked,
+    linked_document_id: document.getElementById("doc_linked_document_id").value || null,
+    reason: document.getElementById("doc_reason").value,
+    customer_name: document.getElementById("doc_customer_name").value,
+    customer_company: document.getElementById("doc_customer_company").value,
+    customer_ice: document.getElementById("doc_customer_ice").value,
+    customer_phone: document.getElementById("doc_customer_phone").value,
+    customer_email: document.getElementById("doc_customer_email").value,
+    customer_address: document.getElementById("doc_customer_address").value,
+    amount_paid: document.getElementById("doc_amount_paid").value || 0,
+    notes: document.getElementById("doc_notes").value,
+    items: itemRows,
+  };
+
+  const url = editingDocId ? `${API}/documents/${editingDocId}` : `${API}/documents`;
+  const method = editingDocId ? "PATCH" : "POST";
+  const res = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || "Erreur", true); return; }
+
+  closeEditor();
+  showToast(editingDocId ? "Document mis a jour" : "Document cree");
+  loadDocuments();
+}
+
+async function duplicateDocument(docId) {
+  const res = await fetch(`${API}/documents/${docId}/duplicate`, { method: "POST" });
+  if (!res.ok) { showToast("Erreur lors de la duplication", true); return; }
+  showToast("Document duplique");
+  loadDocuments();
+}
+
+async function deleteDocument(docId) {
+  if (!confirm("Supprimer ce document ? Cette action est irreversible.")) return;
+  const res = await fetch(`${API}/documents/${docId}`, { method: "DELETE" });
+  if (!res.ok) { showToast("Erreur lors de la suppression", true); return; }
+  showToast("Document supprime");
+  loadDocuments();
+}
+
+// ------------------------------------------------------------- print ----
+const TYPE_TITLES = { facture: "FACTURE", devis: "DEVIS", bl: "BON DE LIVRAISON", avoir: "AVOIR" };
+
+// French number-to-words, for the "Arretee a la somme de..." legal line
+// French invoices/quotes traditionally carry. Handles up to 999,999,999.
+const UNITS = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf",
+  "dix", "onze", "douze", "treize", "quatorze", "quinze", "seize", "dix-sept", "dix-huit", "dix-neuf"];
+const TENS = ["", "", "vingt", "trente", "quarante", "cinquante", "soixante", "soixante-dix", "quatre-vingt", "quatre-vingt-dix"];
+
+function numberToFrenchWords(n) {
+  n = Math.floor(n);
+  if (n === 0) return "zero";
+
+  function threeDigits(num) {
+    let out = "";
+    const h = Math.floor(num / 100), rest = num % 100;
+    if (h > 0) out += (h > 1 ? UNITS[h] + " cent" : "cent") + (h > 1 && rest === 0 ? "s" : "") + (rest > 0 ? " " : "");
+    if (rest > 0) {
+      if (rest < 20) {
+        out += UNITS[rest];
+      } else {
+        const t = Math.floor(rest / 10), u = rest % 10;
+        if (t === 7 || t === 9) {
+          out += TENS[t - 1] + "-" + UNITS[10 + u];
+        } else {
+          out += TENS[t] + (u > 0 ? (u === 1 && t !== 8 ? " et un" : "-" + UNITS[u]) : (t === 8 ? "s" : ""));
+        }
+      }
+    }
+    return out;
+  }
+
+  const millions = Math.floor(n / 1000000);
+  const thousands = Math.floor((n % 1000000) / 1000);
+  const remainder = n % 1000;
+  let parts = [];
+  if (millions > 0) parts.push((millions > 1 ? threeDigits(millions) + " millions" : "un million"));
+  if (thousands > 0) parts.push((thousands > 1 ? threeDigits(thousands) + " mille" : "mille"));
+  if (remainder > 0 || parts.length === 0) parts.push(threeDigits(remainder));
+  return parts.join(" ").trim();
+}
+
+function amountInWords(total) {
+  const dirhams = Math.floor(total);
+  const centimes = Math.round((total - dirhams) * 100);
+  let text = numberToFrenchWords(dirhams) + " dirhams";
+  if (centimes > 0) text += " et " + numberToFrenchWords(centimes) + " centimes";
+  return text;
+}
+
+async function printDocument(docId) {
+  const doc = await fetch(`${API}/documents/${docId}`).then(r => r.json());
+  const s = branding;
+  const show = key => s[key] !== "false";
+
+  document.documentElement.style.setProperty("--doc-accent", s.theme_accent || "#1F4B3F");
+
+  const companyLines = [];
+  if (show("doc_show_address") && s.store_address) companyLines.push(s.store_address);
+  if (show("doc_show_phone") && s.store_phone) companyLines.push("Tel : " + s.store_phone);
+  if (show("doc_show_email") && s.company_email) companyLines.push(s.company_email);
+  if (show("doc_show_website") && s.company_website) companyLines.push(s.company_website);
+  const legalLines = [];
+  if (show("doc_show_ice") && s.company_ice) legalLines.push("ICE " + s.company_ice);
+  if (show("doc_show_if") && s.company_if) legalLines.push("IF " + s.company_if);
+  if (show("doc_show_rc") && s.company_rc) legalLines.push("RC " + s.company_rc);
+
+  const hidePrices = doc.doc_type === "bl" && doc.hide_prices;
+
+  const itemsHtml = doc.items.map((i, idx) => `
+    <tr>
+      <td class="num num-col">${idx + 1}</td>
+      <td>${i.description}</td>
+      <td class="num">${i.quantity}</td>
+      ${hidePrices ? "" : `
+        <td class="num">${i.unit_price.toFixed(2)}</td>
+        <td class="num">${i.discount_pct}%</td>
+        <td class="num">${i.tax_pct}%</td>
+        <td class="num">${i.line_total.toFixed(2)}</td>
+      `}
+    </tr>
+  `).join("");
+
+  const totalsHtml = hidePrices ? "" : `
+    <div class="doc-print-totals-row">
+      <div class="doc-print-totals">
+        <div><span>Total HT</span><span>${doc.subtotal.toFixed(2)} MAD</span></div>
+        <div><span>Remise</span><span>-${doc.discount_total.toFixed(2)} MAD</span></div>
+        <div><span>TVA</span><span>${doc.tax_total.toFixed(2)} MAD</span></div>
+        <div class="grand"><span>Total TTC</span><span>${doc.total.toFixed(2)} MAD</span></div>
+        ${doc.doc_type === "facture" ? `
+          <div><span>Paye</span><span>${doc.amount_paid.toFixed(2)} MAD</span></div>
+          <div><span>Reste a payer</span><span>${(doc.total - doc.amount_paid).toFixed(2)} MAD</span></div>
+        ` : ""}
+      </div>
+    </div>
+  `;
+
+  const dateLine = doc.doc_type === "facture" ? (doc.due_date ? `Echeance : ${doc.due_date}` : "")
+    : doc.doc_type === "devis" ? (doc.valid_until ? `Valable jusqu'au : ${doc.valid_until}` : "")
+    : doc.doc_type === "bl" ? (doc.delivery_date ? `Livraison : ${doc.delivery_date}` : "")
+    : "";
+
+  const partyExtra = doc.doc_type === "bl" && (doc.driver_name || doc.vehicle)
+    ? `<br>${doc.driver_name ? "Chauffeur : " + doc.driver_name + " " : ""}${doc.vehicle ? "Vehicule : " + doc.vehicle : ""}`
+    : doc.doc_type === "avoir" && doc.reason ? `<br>Motif : ${doc.reason}`
+    : "";
+
+  document.getElementById("print-view").innerHTML = `
+    <div class="doc-print">
+      <div class="doc-print-body">
+        <div class="doc-print-header">
+          <div>
+            ${show("doc_show_logo") && s.company_logo_filename ? `<img src="/uploads/company/${s.company_logo_filename}">` : ""}
+            <div class="doc-print-company-name">${s.store_name || ""}</div>
+            <div class="doc-print-company">
+              ${companyLines.join("<br>")}
+              ${legalLines.length ? "<br>" + legalLines.join(" - ") : ""}
+            </div>
+          </div>
+          <div class="doc-print-meta">
+            <h2>${TYPE_TITLES[doc.doc_type]}</h2>
+            <div>N&deg; ${doc.doc_number}</div>
+            <div>Date : ${doc.issue_date}</div>
+            ${dateLine ? `<div>${dateLine}</div>` : ""}
+            ${show("doc_show_payment_status") && doc.doc_type === "facture" ? `<div>Statut : ${STATUS_LABELS[doc.status]}</div>` : ""}
+            ${doc.doc_type === "avoir" && doc.linked_document_number ? `<div>Facture liee : ${doc.linked_document_number}</div>` : ""}
+          </div>
+        </div>
+
+        <div class="doc-print-parties">
+          <div class="doc-print-party">
+            <div class="doc-print-party-label">VENDEUR</div>
+            ${s.store_name ? `
+              <strong>${s.store_name}</strong><br>
+              ${companyLines.join("<br>")}
+              ${legalLines.length ? "<br>" + legalLines.join(" - ") : ""}
+            ` : `<span style="color:#B23A2E">Completez vos informations dans Branding &gt; Informations de l'entreprise</span>`}
+          </div>
+          <div class="doc-print-party">
+            <div class="doc-print-party-label">CLIENT</div>
+            <strong>${doc.customer_name || ""}</strong>${doc.customer_company ? " - " + doc.customer_company : ""}<br>
+            ${doc.customer_address ? doc.customer_address + "<br>" : ""}
+            ${doc.customer_phone ? "Tel : " + doc.customer_phone + " " : ""}${doc.customer_email || ""}
+            ${doc.customer_ice ? "<br>ICE : " + doc.customer_ice : ""}
+            ${partyExtra}
+          </div>
+        </div>
+
+        <div class="doc-print-object">Objet : ${TYPE_TITLES[doc.doc_type]} N&deg; ${doc.doc_number}</div>
+
+        <table class="doc-print-items">
+          <thead>
+            <tr>
+              <th>#</th><th>Description</th><th style="text-align:right">Qte</th>
+              ${hidePrices ? "" : `<th style="text-align:right">Prix U.</th><th style="text-align:right">Remise</th><th style="text-align:right">TVA</th><th style="text-align:right">Total</th>`}
+            </tr>
+          </thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+
+        ${totalsHtml}
+
+        ${!hidePrices ? `<div class="doc-print-words">Arretee la presente ${TYPE_TITLES[doc.doc_type].toLowerCase()} a la somme de : <strong>${amountInWords(doc.total)}</strong></div>` : ""}
+
+        <div class="doc-print-bottom">
+          <div class="doc-print-terms-box">
+            ${doc.notes ? `<div class="label">CONDITIONS</div>${doc.notes}` : ""}
+            ${show("doc_show_terms") && s.doc_terms ? `<div style="margin-top:6px">${s.doc_terms}</div>` : ""}
+          </div>
+          <div class="doc-print-stamp-box">Cachet et signature</div>
+        </div>
+
+        ${show("doc_show_signature") ? `
+          <div class="doc-print-signature">
+            <div>Signature du client</div>
+            <div>Bon pour accord</div>
+          </div>` : ""}
+      </div>
+
+      <div class="doc-print-footer">
+        ${[s.store_name, s.store_address, s.store_phone, legalLines.join(" - ")].filter(Boolean).join(" &middot; ")}
+      </div>
+    </div>
+  `;
+
+  window.print();
+}
+
+// -------------------------------------------------- send by email/whatsapp
+function buildDocMessage(doc) {
+  const label = TYPE_TITLES[doc.doc_type];
+  return `Bonjour ${doc.customer_name || ""},\n\nVeuillez trouver ci-joint votre ${label.toLowerCase()} N ${doc.doc_number} d'un montant de ${doc.total.toFixed(2)} MAD.\n\nCordialement,\n${branding.store_name || ""}`;
+}
+
+async function sendByEmail(docId) {
+  const doc = await fetch(`${API}/documents/${docId}`).then(r => r.json());
+  if (!doc.customer_email) {
+    showToast("Aucun email renseigne pour ce client - ajoutez-en un dans le document", true);
+    return;
+  }
+  const subject = encodeURIComponent(`${TYPE_TITLES[doc.doc_type]} ${doc.doc_number}`);
+  const body = encodeURIComponent(buildDocMessage(doc) + "\n\n(Pensez a joindre le PDF : bouton Imprimer puis \"Enregistrer en PDF\")");
+  window.location.href = `mailto:${doc.customer_email}?subject=${subject}&body=${body}`;
+}
+
+async function sendByWhatsApp(docId) {
+  const doc = await fetch(`${API}/documents/${docId}`).then(r => r.json());
+  if (!doc.customer_phone) {
+    showToast("Aucun telephone renseigne pour ce client - ajoutez-en un dans le document", true);
+    return;
+  }
+  const phone = doc.customer_phone.replace(/[^0-9]/g, "");
+  const text = encodeURIComponent(buildDocMessage(doc) + "\n\n(PDF a joindre manuellement : Imprimer puis \"Enregistrer en PDF\")");
+  window.open(`https://wa.me/${phone}?text=${text}`, "_blank");
+}
+
+function handleSendChoice(selectEl, docId) {
+  const choice = selectEl.value;
+  selectEl.value = "";
+  if (choice === "email") sendByEmail(docId);
+  if (choice === "whatsapp") sendByWhatsApp(docId);
+}
+
+function showToast(message, isError = false) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.className = "toast show" + (isError ? " toast-error" : "");
+  setTimeout(() => { toast.className = "toast"; }, 2500);
+}
+
+async function loadAll() {
+  branding = await fetch(`${API}/settings`).then(r => r.json());
+  renderTabs();
+  renderStatusFilter();
+  loadDocuments();
+}
+
+loadAll();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,7 @@
+Flask==3.1.3
+pywebview==5.3.2
+
+# --- Licensing system ---
+cryptography>=42.0      # Ed25519 signature verification
+requests>=2.31           # calls to the licensing server (login/activate/reactivate only)
+pywin32>=306               # winreg + win32crypt (device fingerprint, DPAPI-encrypted license.dat)

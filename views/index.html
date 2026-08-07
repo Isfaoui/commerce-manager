@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<script>
+/* Applies the last-known theme from localStorage synchronously, before
+   any CSS paints. This is what actually prevents the white/light flash -
+   theme.js's fetch-based apply is necessarily async and runs too late to
+   avoid a flash on its own; this is the fast path, theme.js is the
+   source-of-truth reconciliation that runs after. */
+(function () {
+  try {
+    var t = JSON.parse(localStorage.getItem("cm_theme") || "null");
+    if (!t) return;
+    var isDark = t.mode === "dark" || (t.mode === "auto" && window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+    var palette = isDark
+      ? { bg: "#17181C", surface: "#1F2126", border: "#33353B", text: "#EDEDEE", textMuted: "#9B9DA3" }
+      : { bg: "#F7F6F2", surface: "#FFFFFF", border: "#DEDBD1", text: "#1C1B18", textMuted: "#78766C" };
+    var root = document.documentElement.style;
+    root.setProperty("--bg", palette.bg);
+    root.setProperty("--surface", palette.surface);
+    root.setProperty("--border", palette.border);
+    root.setProperty("--text", palette.text);
+    root.setProperty("--text-muted", palette.textMuted);
+    root.setProperty("--accent", t.accent || "#1F4B3F");
+  } catch (e) {}
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caisse</title>
+<style>
+  :root {
+    --bg: #F7F6F2; --surface: #FFFFFF; --border: #DEDBD1;
+    --text: #1C1B18; --text-muted: #78766C;
+    --accent: #1F4B3F; --accent-light: #E4EFE9;
+    --danger: #B23A2E; --danger-light: #F7E7E5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  header { padding: 10px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .type-tabs { display: flex; gap: 6px; }
+  .type-tab { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-muted); }
+  .type-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .barcode-input { margin-left: auto; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; width: 280px; font-family: inherit; }
+  .barcode-input:focus { outline: none; border-color: var(--accent); }
+
+  .onboarding-overlay { display: none; position: fixed; inset: 0; background: rgba(28,27,24,0.6); align-items: center; justify-content: center; z-index: 500; }
+  .onboarding-overlay.show { display: flex; }
+  .onboarding-card { background: var(--surface); border-radius: 14px; padding: 28px; width: 420px; max-width: 90vw; }
+  .onboarding-card h2 { margin: 0 0 10px; font-size: 18px; }
+  .onboarding-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
+  .onboarding-card label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; display: block; }
+  .onboarding-select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; margin-bottom: 16px; font-family: inherit; }
+  .onboarding-btn { width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--accent); color: white; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .onboarding-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .receipt-content { font-family: "Courier New", monospace; font-size: 13px; color: #111; }
+  .receipt-content h2 { text-align: center; margin: 0 0 4px; font-size: 16px; }
+  .receipt-content .r-sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 12px; }
+  .receipt-content .r-item { display: flex; justify-content: space-between; padding: 2px 0; }
+  .receipt-content hr { border: none; border-top: 1px dashed #999; margin: 10px 0; }
+  .receipt-content .r-total { display: flex; justify-content: space-between; font-weight: bold; font-size: 15px; }
+  .receipt-content .r-footer { text-align: center; font-size: 11px; color: #555; margin-top: 14px; }
+
+  .receipt-content.tpl-modern { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .receipt-content.tpl-modern h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+  .receipt-content.tpl-modern hr { border-top: 1px solid #ddd; }
+  .receipt-content.tpl-modern .r-total { font-size: 17px; }
+
+  .receipt-content.tpl-minimal { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 11px; }
+  .receipt-content.tpl-minimal h2 { font-size: 13px; font-weight: 600; }
+  .receipt-content.tpl-minimal hr { border-color: transparent; margin: 4px 0; }
+  .receipt-content.tpl-minimal .r-total { font-size: 13px; padding-top: 4px; border-top: 1px solid #ccc; }
+
+  @media print {
+    body * { visibility: hidden; }
+    #receipt-content, #receipt-content * { visibility: visible; }
+    #receipt-content { position: absolute; top: 0; left: 0; width: 100%; }
+  }
+
+  #table-picker { display: none; padding: 10px 24px; border-bottom: 1px solid var(--border); }
+  #table-picker-label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .04em; }
+  #table-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+  .table-chip { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; cursor: pointer; text-align: center; }
+  .table-chip.occupied { opacity: 0.4; cursor: not-allowed; }
+  .table-chip.selected { background: var(--accent-light); border-color: var(--accent); }
+  .table-seats { font-size: 10px; color: var(--text-muted); }
+
+  .pos-main { flex: 1; overflow-y: auto; min-width: 0; }
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(480px, 55fr) minmax(300px, 25fr) minmax(240px, 20fr);
+    height: calc(100vh - 130px);
+  }
+  .products { padding: 20px; overflow-y: auto; }
+  .products-toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
+  .search-input { flex: 1; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); font-size: 15px; font-family: inherit; }
+  .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+  .btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .discount-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .discount-input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; font-family: inherit; }
+  .discount-type { padding: 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; font-family: inherit; background: var(--surface); }
+  .held-order-chip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; font-size: 12px; }
+  .held-order-chip button { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 11px; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  .product-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: left; cursor: pointer; font-family: inherit; transition: border-color .12s, transform .12s; }
+  .product-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .product-card:disabled { opacity: 0.4; cursor: not-allowed; }
+  .product-photo { width: 100%; aspect-ratio: 1.3; border-radius: 9px; overflow: hidden; margin-bottom: 10px; background: var(--bg); }
+  .product-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .product-photo-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 600; color: var(--border); background: var(--bg); }
+  .product-name { font-size: 14px; font-weight: 500; margin-bottom: 7px; min-height: 36px; }
+  .product-price { font-family: "SF Mono", monospace; font-size: 15px; font-weight: 600; color: var(--accent); }
+  .product-stock { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+  .product-stock.low { color: var(--danger); font-weight: 600; }
+
+  .cart { background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+  .panel-title { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+  #cart-items { flex: 1; overflow-y: auto; padding: 4px 16px; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; gap: 8px; }
+  .row-main { flex: 1; }
+  .qty-controls { display: flex; align-items: center; gap: 6px; }
+  .qty-btn { width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; }
+  .row-amount { font-family: "SF Mono", monospace; font-weight: 600; min-width: 56px; text-align: right; }
+  .empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px 0; }
+  .cart-footer {
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    box-shadow: 0 -6px 12px -8px rgba(0,0,0,0.12);
+    z-index: 2;
+  }
+  .tax-breakdown { margin-bottom: 8px; }
+  .tax-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); padding: 2px 0; }
+  .total-display { background: var(--text); color: #E8F3ED; font-family: "SF Mono", monospace; font-size: 26px; font-weight: 600; text-align: right; padding: 12px 14px; border-radius: 10px; margin-bottom: 10px; }
+  .total-display .cur { font-size: 13px; color: #A9C4B8; margin-right: 6px; }
+  .btn { width: 100%; padding: 13px; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn.primary { background: var(--accent); color: white; }
+  .btn.primary:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; }
+  #send-order-btn { padding: 18px; font-size: 16px; border-radius: 12px; }
+
+  .open-orders-panel { background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+  #open-orders { flex: 1; overflow-y: auto; padding: 8px; }
+  .order-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 8px; font-size: 12px; }
+  .order-card-header { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
+  .order-total { font-family: "SF Mono", monospace; }
+  .order-items { color: var(--text-muted); margin-bottom: 8px; }
+  .order-badges { display: flex; gap: 4px; margin-bottom: 8px; }
+  .badge-mini { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--text-muted); border: 1px solid var(--border); }
+  .badge-mini.ok { background: var(--accent-light); color: var(--accent); border-color: var(--accent-light); }
+  .badge-mini.warn { background: var(--danger-light); color: var(--danger); border-color: var(--danger-light); }
+  .order-actions { display: flex; gap: 4px; }
+  .btn-small { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 11px; cursor: pointer; }
+  .btn-small.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-small.danger { background: var(--danger-light); color: var(--danger); border-color: var(--danger-light); }
+
+  /* --- Responsive: below this width, Open Orders becomes a slide-in drawer --- */
+  #orders-drawer-toggle { display: none; margin-left: 10px; }
+  .drawer-backdrop { display: none; }
+
+  @media (max-width: 1300px) {
+    .layout { grid-template-columns: minmax(420px, 65fr) minmax(300px, 35fr); }
+
+    #orders-drawer-toggle { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 9px 14px; white-space: nowrap; }
+
+    .open-orders-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 320px;
+      max-width: 85vw;
+      height: 100vh;
+      z-index: 400;
+      transform: translateX(100%);
+      transition: transform .22s ease;
+      box-shadow: -8px 0 24px rgba(0,0,0,0.15);
+    }
+    .open-orders-panel.show { transform: translateX(0); }
+
+    .drawer-backdrop.show {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(28,27,24,0.4);
+      z-index: 399;
+    }
+  }
+
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    .products { min-height: 60vh; }
+    .cart { border-left: none; border-top: 1px solid var(--border); }
+  }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(28,27,24,0.5); align-items: center; justify-content: center; z-index: 100; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; padding: 20px; width: 380px; max-width: 90vw; }
+  .modal h3 { margin: 0 0 14px; font-size: 15px; }
+  .modal-total { font-family: "SF Mono", monospace; font-size: 22px; font-weight: 600; text-align: center; margin-bottom: 16px; color: var(--accent); }
+  .pay-options { display: grid; gap: 8px; margin-bottom: 12px; }
+  .pay-options button { padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); font-size: 13px; font-weight: 500; cursor: pointer; }
+  .modal-cancel-link { display: block; text-align: center; margin-top: 8px; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+
+  .approval-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+  .approval-tab { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 11px; cursor: pointer; }
+  .approval-tab.active { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
+  .field-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; display: block; text-transform: uppercase; letter-spacing: .03em; }
+  .field-input, select.field-input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; margin-bottom: 10px; font-family: inherit; }
+  .error-text { color: var(--danger); font-size: 12px; margin-bottom: 8px; min-height: 16px; }
+  .group-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 11px; cursor: pointer; }
+  .group-btn.group-1 { background: var(--accent-light); border-color: var(--accent); }
+  .group-btn.group-2 { background: #FCEFD8; border-color: #B98A2E; }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(10px); background: var(--text); color: white; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: .2s; z-index: 200; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { background: var(--danger); }
+
+  /* --- Sidebar (shared shell) --- */
+  body { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 12px;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  .sidebar .brand { font-weight: 600; font-size: 15px; padding: 4px 12px 20px; margin-right: 0; display: block; }
+  .sidebar a {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  .sidebar a.active { background: var(--accent-light); color: var(--accent); }
+  .sidebar a.disabled { opacity: 0.45; pointer-events: none; }
+  .notif-bell-wrap { position: relative; margin-top: auto; margin-left: 0; }
+  .notif-bell { width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px; border: none; background: none; color: var(--text-muted); font-size: 14px; font-weight: 500; cursor: pointer; position: relative; font-family: inherit; }
+  .notif-badge { display: none; position: absolute; top: 2px; right: 6px; background: var(--danger); color: white; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; min-width: 14px; text-align: center; }
+  .notif-dropdown { display: none; position: absolute; bottom: 100%; left: 0; width: 300px; max-height: 400px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; margin-bottom: 6px; }
+  .notif-dropdown.show { display: block; }
+  .notif-dropdown-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+  .notif-dropdown-header button { background: none; border: none; color: var(--accent); font-size: 11px; cursor: pointer; }
+  .notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-item.notif-unread { background: var(--accent-light); }
+  .notif-item.notif-warn { background: var(--danger-light); }
+  .notif-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .notif-empty { padding: 20px; text-align: center; font-size: 12px; color: var(--text-muted); }
+</style>
+<script src="/theme.js"></script>
+<script src="/notifications.js"></script>
+</head>
+<body>
+
+<div class="onboarding-overlay" id="onboarding-overlay">
+  <div class="onboarding-card">
+    <h2>Bienvenue dans Commerce Manager</h2>
+    <p>Avant de commencer, choisissez le type de votre commerce. <strong>Ce choix est definitif</strong> et ne pourra plus etre modifie ensuite - il configure la caisse (types de commande, tables, etc.).</p>
+    <label>Type de commerce</label>
+    <select class="onboarding-select" id="onboarding-type">
+      <option value="restaurant">Restaurant</option>
+      <option value="cafe">Cafe</option>
+      <option value="grocery">Epicerie / Commerce de detail</option>
+      <option value="service">Service (salon, reparation, etc.)</option>
+      <option value="other">Autre</option>
+    </select>
+    <button class="onboarding-btn" id="onboarding-confirm-btn" onclick="confirmBusinessType()">Confirmer</button>
+  </div>
+</div>
+
+<aside class="sidebar">
+  <span class="brand">Commerce manager</span>
+  <a href="dashboard.html">Accueil</a>
+  <a href="index.html" class="active">Caisse</a>
+  <a href="management.html">Gestion</a>
+  <a href="staff.html">Personnel</a>
+  <a href="documents.html">Documents</a>
+  <a href="branding.html">Branding</a>
+  <a href="settings.html">Parametres</a>
+  <div class="notif-bell-wrap" id="notif-bell-wrap">
+    <button class="notif-bell" onclick="toggleNotifDropdown()">Notifications<span class="notif-badge" id="notif-badge"></span></button>
+    <div class="notif-dropdown" id="notif-dropdown">
+      <div class="notif-dropdown-header">
+        <span>Notifications</span>
+        <button onclick="markAllNotificationsRead()">Tout marquer lu</button>
+      </div>
+      <div id="notif-list"></div>
+    </div>
+  </div>
+</aside>
+
+<div class="pos-main">
+<header>
+  <div class="type-tabs" id="type-tabs"></div>
+  <input class="barcode-input" id="barcode-input" placeholder="Scanner ou taper un code-barres puis Entree" autocomplete="off">
+  <button id="orders-drawer-toggle" class="btn secondary" onclick="toggleOrdersDrawer()">Commandes <span id="orders-drawer-count"></span></button>
+</header>
+
+<div id="orders-drawer-backdrop" class="drawer-backdrop" onclick="toggleOrdersDrawer()"></div>
+
+<div id="table-picker">
+  <div id="table-picker-label">Choisir une table</div>
+  <div id="table-grid"></div>
+</div>
+
+<div class="layout">
+  <div class="products">
+    <div class="products-toolbar">
+      <input class="search-input" id="search-input" placeholder="Rechercher un produit..." oninput="renderGrid()">
+      <button class="btn secondary" style="width:auto;padding:9px 14px;white-space:nowrap" onclick="openCustomItemModal()">+ Article libre</button>
+    </div>
+    <div class="grid" id="product-grid"></div>
+  </div>
+
+  <div class="cart">
+    <div class="panel-title">Ticket en cours</div>
+    <div id="cart-items"></div>
+    <div class="cart-footer">
+      <div class="discount-row">
+        <input class="discount-input" id="discount-value" type="number" step="0.01" placeholder="Remise" oninput="updateDiscount()">
+        <select class="discount-type" id="discount-type" onchange="updateDiscount()">
+          <option value="percent">%</option>
+          <option value="fixed">MAD</option>
+        </select>
+      </div>
+      <div class="tax-breakdown">
+        <div class="tax-row" id="discount-summary-row" style="display:none"><span>Remise</span><span id="cart-discount">0.00</span></div>
+        <div class="tax-row"><span>Sous-total (HT)</span><span id="cart-subtotal">0.00</span></div>
+        <div class="tax-row"><span id="cart-tax-label">TVA</span><span id="cart-tax">0.00</span></div>
+      </div>
+      <div class="total-display"><span class="cur">MAD</span><span id="cart-total">0.00</span></div>
+      <button class="btn primary" id="send-order-btn" disabled onclick="sendOrder()">Envoyer la commande</button>
+      <button class="btn secondary" id="hold-order-btn" disabled onclick="holdOrder()" style="margin-top:8px">Mettre en attente</button>
+    </div>
+  </div>
+
+  <div class="open-orders-panel">
+    <div id="held-orders-section" style="display:none">
+      <div class="panel-title">En attente</div>
+      <div id="held-orders"></div>
+    </div>
+    <div class="panel-title">Commandes en cours</div>
+    <div id="open-orders"></div>
+  </div>
+</div>
+</div>
+
+<div class="modal-overlay" id="receipt-modal">
+  <div class="modal" style="width:320px">
+    <div id="receipt-content" class="receipt-content"></div>
+    <button class="btn primary" onclick="window.print()" style="margin-top:14px">Imprimer</button>
+    <span class="modal-cancel-link" onclick="closeReceiptModal()">Fermer</span>
+  </div>
+</div>
+
+<div class="modal-overlay" id="custom-item-modal">
+  <div class="modal">
+    <h3>Article libre</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:-8px">Pour une vente ponctuelle qui ne merite pas une fiche produit permanente.</p>
+    <span class="field-label">Nom</span>
+    <input class="field-input" id="custom-item-name" placeholder="Ex: Pourboire, service traiteur...">
+    <span class="field-label">Prix (MAD)</span>
+    <input class="field-input" id="custom-item-price" type="number" step="0.01">
+    <span class="field-label">Quantite</span>
+    <input class="field-input" id="custom-item-qty" type="number" step="1" value="1">
+    <button class="btn primary" onclick="addCustomItemToCart()">Ajouter au ticket</button>
+    <span class="modal-cancel-link" onclick="closeCustomItemModal()">Annuler</span>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pay-modal">
+  <div class="modal">
+    <h3>Encaisser</h3>
+    <div class="modal-total"><span id="pay-modal-total"></span> MAD</div>
+
+    <div class="pay-options" id="pay-modal-options"></div>
+    <span class="modal-cancel-link" onclick="closePayModal()">Annuler</span>
+  </div>
+</div>
+
+<div class="modal-overlay" id="split-modal">
+  <div class="modal">
+    <h3>Diviser l'addition</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:-8px">Touchez un article pour changer son groupe</p>
+    <div id="split-items"></div>
+    <button class="btn primary" style="margin-top:12px" onclick="confirmSplit()">Diviser</button>
+    <span class="modal-cancel-link" onclick="closeSplitModal()">Annuler</span>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal">
+    <h3>Annulation / remboursement</h3>
+    <div class="modal-total"><span id="cancel-modal-total"></span> MAD</div>
+
+    <span class="field-label">Methode d'autorisation</span>
+    <div class="approval-tabs">
+      <button class="approval-tab active" data-method="admin_pin" onclick="setApprovalMethod('admin_pin')">Code PIN</button>
+      <button class="approval-tab" data-method="nfc_card" onclick="setApprovalMethod('nfc_card')">Carte NFC</button>
+      <button class="approval-tab" data-method="password" onclick="setApprovalMethod('password')">Mot de passe</button>
+      <button class="approval-tab" data-method="manager_approval" onclick="setApprovalMethod('manager_approval')">Approbation manager</button>
+    </div>
+
+    <span class="field-label">Manager / responsable</span>
+    <select class="field-input" id="cancel-manager-select"></select>
+
+    <div id="credential-row">
+      <span class="field-label" id="credential-label">Code PIN</span>
+      <input class="field-input" id="cancel-credential" type="password">
+    </div>
+
+    <span class="field-label">Motif</span>
+    <input class="field-input" id="cancel-reason" placeholder="Ex: erreur de commande, client insatisfait...">
+
+    <div class="error-text" id="cancel-error"></div>
+
+    <button class="btn primary" style="background:var(--danger)" onclick="confirmCancel()">Confirmer l'annulation</button>
+    <span class="modal-cancel-link" onclick="closeCancelModal()">Retour</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = "/api";
+
+const BUSINESS_TYPE_CONFIG = {
+  restaurant: { orderTypes: ["takeaway", "dine_in", "delivery"] },
+  cafe: { orderTypes: ["takeaway", "dine_in", "delivery"] },
+  grocery: { orderTypes: ["takeaway"] },
+  service: { orderTypes: ["takeaway"] },
+  other: { orderTypes: ["takeaway", "dine_in", "delivery"] },
+};
+const ORDER_TYPE_LABELS = { takeaway: "A emporter", dine_in: "Sur place", delivery: "Livraison" };
+
+let allowedOrderTypes = ["takeaway", "dine_in", "delivery"];
+let products = [];
+let tables = [];
+let employees = [];
+let cart = {};
+let taxRate = 0;
+let paymentMethods = [];
+let customItemCounter = 0;
+let currentDiscount = null;
+let orderType = "takeaway";
+let selectedTableId = null;
+let openOrders = [];
+let pendingCancelTicket = null;
+let pendingSplitTicket = null;
+let splitAssignment = {};
+
+async function checkBusinessType() {
+  const settings = await fetch(`${API}/settings`).then(r => r.json());
+  if (!settings.business_type) {
+    document.getElementById("onboarding-overlay").classList.add("show");
+    return null;
+  }
+  return settings.business_type;
+}
+
+async function confirmBusinessType() {
+  const type = document.getElementById("onboarding-type").value;
+  const btn = document.getElementById("onboarding-confirm-btn");
+  btn.disabled = true;
+  const res = await fetch(`${API}/settings`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business_type: type }),
+  });
+  if (res.ok) { location.reload(); } else { btn.disabled = false; }
+}
+
+function renderTypeTabs() {
+  const container = document.getElementById("type-tabs");
+  if (allowedOrderTypes.length <= 1) {
+    container.style.display = "none";
+    return;
+  }
+  container.style.display = "flex";
+  container.innerHTML = allowedOrderTypes.map(t => `
+    <button class="type-tab ${t === orderType ? 'active' : ''}" data-type="${t}" onclick="setOrderType('${t}')">
+      ${ORDER_TYPE_LABELS[t]}
+    </button>
+  `).join("");
+}
+
+async function loadAll() {
+  const [p, t, e, o, s, pm] = await Promise.all([
+    fetch(`${API}/products?sellable_only=1`).then(r => r.json()),
+    fetch(`${API}/tables`).then(r => r.json()),
+    fetch(`${API}/employees`).then(r => r.json()),
+    fetch(`${API}/orders/active`).then(r => r.json()),
+    fetch(`${API}/settings`).then(r => r.json()),
+    fetch(`${API}/payment-methods`).then(r => r.json()),
+  ]);
+  products = p; tables = t; employees = e; openOrders = o;
+  taxRate = parseFloat(s.default_tax_rate) || 0;
+  paymentMethods = pm;
+  renderGrid();
+  renderTables();
+  renderOpenOrders();
+  renderCart();
+  populateEmployeeSelects();
+}
+
+function setOrderType(type) {
+  orderType = type;
+  document.querySelectorAll(".type-tab").forEach(el => el.classList.toggle("active", el.dataset.type === type));
+  document.getElementById("table-picker").style.display = type === "dine_in" ? "block" : "none";
+  if (type !== "dine_in") selectedTableId = null;
+  renderTables();
+  renderCart();
+}
+
+function renderTables() {
+  const el = document.getElementById("table-grid");
+  if (tables.length === 0) {
+    el.innerHTML = `<div class="empty" style="text-align:left">Aucune table configuree - ajoutez-en dans Gestion &rarr; Tables.</div>`;
+    return;
+  }
+  el.innerHTML = tables.map(t => `
+    <button class="table-chip ${t.status} ${t.id === selectedTableId ? 'selected' : ''}"
+            onclick="selectTable('${t.id}')" ${t.status === 'occupied' ? 'disabled' : ''}>
+      ${t.label}<br><span class="table-seats">${t.seats} places</span>
+    </button>
+  `).join("");
+}
+
+function selectTable(tableId) {
+  selectedTableId = tableId;
+  renderTables();
+  renderCart();
+}
+
+function renderGrid() {
+  const grid = document.getElementById("product-grid");
+  const query = (document.getElementById("search-input")?.value || "").trim().toLowerCase();
+  const filtered = query ? products.filter(p => p.name.toLowerCase().includes(query)) : products;
+
+  grid.innerHTML = filtered.map(p => {
+    const inCart = cart[p.id]?.quantity || 0;
+    const available = p.available_qty - inCart;
+    const low = p.product_type === "simple" && p.stock_qty <= (p.reorder_threshold || 5);
+    const stockLabel = p.product_type === "recipe" ? `${available} realisables` : `${available} en stock`;
+    return `
+      <button class="product-card" ${available <= 0 ? 'disabled' : ''} onclick="addToCart('${p.id}')">
+        <div class="product-photo">
+          ${p.image_filename
+            ? `<img src="/uploads/products/${p.image_filename}" alt="">`
+            : `<div class="product-photo-placeholder">${p.name.charAt(0).toUpperCase()}</div>`}
+        </div>
+        <div class="product-name">${p.name}</div>
+        <div class="product-price">${p.sale_price.toFixed(2)}</div>
+        <div class="product-stock ${low ? 'low' : ''}">${stockLabel}</div>
+      </button>
+    `;
+  }).join("") || `<div class="empty" style="grid-column:1/-1">Aucun produit trouve</div>`;
+}
+
+function addToCart(productId) {
+  const product = products.find(p => p.id === productId);
+  const current = cart[productId]?.quantity || 0;
+  if (current >= product.available_qty) return;
+  cart[productId] = { kind: "catalog", product, quantity: current + 1, unit_price: product.sale_price, name: product.name };
+  renderCart();
+  renderGrid();
+}
+
+function changeQty(key, delta) {
+  const entry = cart[key];
+  if (!entry) return;
+  entry.quantity += delta;
+  if (entry.quantity <= 0) delete cart[key];
+  renderCart();
+  renderGrid();
+}
+
+function updateDiscount() {
+  const value = parseFloat(document.getElementById("discount-value").value);
+  currentDiscount = value > 0 ? { type: document.getElementById("discount-type").value, value } : null;
+  renderCart();
+}
+
+function renderCart() {
+  const entries = Object.entries(cart);
+  const container = document.getElementById("cart-items");
+  container.innerHTML = entries.length ? entries.map(([key, entry]) => `
+    <div class="row">
+      <div class="row-main">${entry.name}${entry.kind === "custom" ? ' <span style="color:var(--text-muted);font-size:11px">(libre)</span>' : ""}</div>
+      <div class="qty-controls">
+        <button class="qty-btn" onclick="changeQty('${key}', -1)">-</button>
+        <span>${entry.quantity}</span>
+        <button class="qty-btn" onclick="changeQty('${key}', 1)">+</button>
+      </div>
+      <div class="row-amount">${(entry.unit_price * entry.quantity).toFixed(2)}</div>
+    </div>
+  `).join("") : `<div class="empty">Aucun article</div>`;
+
+  const rawTotal = entries.reduce((s, [, entry]) => s + entry.unit_price * entry.quantity, 0);
+
+  let discountAmount = 0;
+  if (currentDiscount) {
+    discountAmount = currentDiscount.type === "percent" ? rawTotal * (currentDiscount.value / 100) : currentDiscount.value;
+    discountAmount = Math.max(0, Math.min(discountAmount, rawTotal));
+  }
+
+  const total = rawTotal - discountAmount;
+  const taxAmount = taxRate > 0 ? total * taxRate / (100 + taxRate) : 0;
+  const subtotalHt = total - taxAmount;
+
+  document.getElementById("cart-total").textContent = total.toFixed(2);
+  document.getElementById("cart-subtotal").textContent = subtotalHt.toFixed(2);
+  document.getElementById("cart-tax").textContent = taxAmount.toFixed(2);
+  document.getElementById("cart-tax-label").textContent = `TVA (${taxRate}%)`;
+
+  const discountRow = document.getElementById("discount-summary-row");
+  if (discountAmount > 0) {
+    discountRow.style.display = "flex";
+    document.getElementById("cart-discount").textContent = "-" + discountAmount.toFixed(2);
+  } else {
+    discountRow.style.display = "none";
+  }
+
+  const canSend = entries.length > 0 && (orderType !== "dine_in" || selectedTableId);
+  document.getElementById("send-order-btn").disabled = !canSend;
+  document.getElementById("hold-order-btn").disabled = entries.length === 0;
+}
+
+function openCustomItemModal() {
+  document.getElementById("custom-item-name").value = "";
+  document.getElementById("custom-item-price").value = "";
+  document.getElementById("custom-item-qty").value = "1";
+  document.getElementById("custom-item-modal").classList.add("show");
+}
+function closeCustomItemModal() {
+  document.getElementById("custom-item-modal").classList.remove("show");
+}
+function addCustomItemToCart() {
+  const name = document.getElementById("custom-item-name").value.trim();
+  const price = parseFloat(document.getElementById("custom-item-price").value);
+  const qty = parseFloat(document.getElementById("custom-item-qty").value) || 1;
+  if (!name || isNaN(price)) { showToast("Nom et prix requis", true); return; }
+  const key = `custom_${customItemCounter++}`;
+  cart[key] = { kind: "custom", quantity: qty, unit_price: price, name };
+  closeCustomItemModal();
+  renderCart();
+}
+
+async function sendOrder() {
+  const items = Object.values(cart).map(entry =>
+    entry.kind === "catalog"
+      ? { product_id: entry.product.id, quantity: entry.quantity }
+      : { custom_name: entry.name, unit_price: entry.unit_price, quantity: entry.quantity }
+  );
+  const payload = { order_type: orderType, items };
+  if (orderType === "dine_in") payload.table_id = selectedTableId;
+  if (currentDiscount) payload.discount = currentDiscount;
+
+  const res = await fetch(`${API}/orders`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error, true); return; }
+
+  cart = {};
+  selectedTableId = null;
+  currentDiscount = null;
+  document.getElementById("discount-value").value = "";
+  renderCart();
+  await loadAll();
+  showToast(`Commande #${data.ticket_number} envoyee`);
+}
+
+function renderOpenOrders() {
+  const countEl = document.getElementById("orders-drawer-count");
+  if (countEl) countEl.textContent = openOrders.length ? `(${openOrders.length})` : "";
+
+  const el = document.getElementById("open-orders");
+  el.innerHTML = openOrders.length ? openOrders.map(o => {
+    const isPaid = o.status === "completed";
+    const isServed = o.fulfillment_status === "served";
+    return `
+    <div class="order-card">
+      <div class="order-card-header">
+        <span>#${o.ticket_number} - ${labelForType(o.order_type)}${o.table_id ? " - " + tableLabel(o.table_id) : ""}</span>
+        <span class="order-total">${o.total.toFixed(2)} MAD</span>
+      </div>
+      <div class="order-items">${o.items.map(i => `${i.product_name} x${i.quantity}`).join(", ")}</div>
+      <div class="order-badges">
+        <span class="badge-mini ${isPaid ? 'ok' : ''}">${isPaid ? "Payee" : "Non payee"}</span>
+        <span class="badge-mini ${isServed ? 'ok' : 'warn'}">${isServed ? "Servi" : "En attente"}</span>
+      </div>
+      <div class="order-actions">
+        ${!isPaid ? `<button class="btn-small primary" onclick="openPayModal('${o.id}')">Encaisser</button>` : ""}
+        ${!isPaid && o.items.length > 1 ? `<button class="btn-small" onclick="openSplitModal('${o.id}')">Diviser</button>` : ""}
+        ${!isServed ? `<button class="btn-small" onclick="markServed('${o.id}')">Marquer comme servi</button>` : ""}
+        <button class="btn-small danger" onclick="openCancelModal('${o.id}', ${o.total})">Annuler</button>
+      </div>
+    </div>
+  `;
+  }).join("") : `<div class="empty">Aucune commande en cours</div>`;
+}
+
+async function markServed(ticketId) {
+  const res = await fetch(`${API}/orders/${ticketId}/mark-served`, { method: "POST" });
+  if (res.ok) { await loadAll(); showToast("Marque comme servi"); }
+}
+
+function labelForType(t) {
+  return { dine_in: "Sur place", takeaway: "A emporter", delivery: "Livraison" }[t] || t;
+}
+function tableLabel(tableId) {
+  const t = tables.find(t => t.id === tableId);
+  return t ? t.label : "";
+}
+
+function openPayModal(ticketId) {
+  const order = openOrders.find(o => o.id === ticketId);
+  document.getElementById("pay-modal").dataset.ticketId = ticketId;
+  document.getElementById("pay-modal-total").textContent = order.total.toFixed(2);
+
+  const optionsEl = document.getElementById("pay-modal-options");
+  optionsEl.innerHTML = paymentMethods.map(pm => `
+    <button onclick="confirmPayment('${pm.name.replace(/'/g, "\\'")}', ${pm.is_tpe ? 1 : 0})">
+      ${pm.name}
+    </button>
+  `).join("");
+
+  document.getElementById("pay-modal").classList.add("show");
+}
+function toggleOrdersDrawer() {
+  document.querySelector(".open-orders-panel").classList.toggle("show");
+  document.getElementById("orders-drawer-backdrop").classList.toggle("show");
+}
+
+function closePayModal() {
+  document.getElementById("pay-modal").classList.remove("show");
+}
+async function confirmPayment(methodName, isTpe) {
+  const modal = document.getElementById("pay-modal");
+  const ticketId = modal.dataset.ticketId;
+  const order = openOrders.find(o => o.id === ticketId);
+
+  if (isTpe) {
+    const tpeRes = await fetch(`${API}/tpe/charge`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: order.total }),
+    });
+    const tpeData = await tpeRes.json();
+    if (tpeData.status !== "approved") { showToast("Paiement TPE refuse", true); return; }
+  }
+
+  const res = await fetch(`${API}/orders/${ticketId}/pay`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payments: [{ method: methodName, amount: order.total }] }),
+  });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error, true); return; }
+  closePayModal();
+  await loadAll();
+  showToast(`Commande #${data.ticket_number} encaissee`);
+  printReceipt(data, methodName);
+}
+
+async function printReceipt(ticket, paymentMethod) {
+  const settings = await fetch(`${API}/settings`).then(r => r.json());
+  if (settings.receipt_enabled === "false") return;
+
+  const storeName = settings.store_name || "Commerce";
+  const currency = settings.currency || "MAD";
+  const address = settings.store_address || "";
+  const phone = settings.store_phone || "";
+  const footer = settings.receipt_footer || "Merci de votre visite";
+  const dateStr = new Date(ticket.closed_at || Date.now()).toLocaleString("fr-FR");
+
+  const itemsHtml = ticket.items.map(i => `
+    <div class="r-item">
+      <span>${i.quantity} x ${i.product_name}</span>
+      <span>${i.line_total.toFixed(2)}</span>
+    </div>
+  `).join("");
+
+  const template = settings.receipt_template || "classic";
+  document.getElementById("receipt-content").className = "receipt-content" + (template !== "classic" ? " tpl-" + template : "");
+  document.getElementById("receipt-content").innerHTML = `
+    ${settings.company_logo_filename ? `<img src="/uploads/company/${settings.company_logo_filename}" alt="" style="display:block;max-height:36px;max-width:100%;object-fit:contain;margin:0 auto 8px;">` : ""}
+    <h2>${storeName}</h2>
+    ${address ? `<div class="r-sub">${address}</div>` : ""}
+    ${phone ? `<div class="r-sub">${phone}</div>` : ""}
+    <div class="r-sub">Ticket #${ticket.ticket_number} - ${dateStr}</div>
+    <hr>
+    ${itemsHtml}
+    <hr>
+    ${ticket.discount_total > 0 ? `<div class="r-item"><span>Remise</span><span>-${ticket.discount_total.toFixed(2)}</span></div>` : ""}
+    <div class="r-item"><span>Sous-total (HT)</span><span>${ticket.subtotal.toFixed(2)}</span></div>
+    <div class="r-item"><span>TVA</span><span>${ticket.tax_total.toFixed(2)}</span></div>
+    <div class="r-total"><span>TOTAL</span><span>${ticket.total.toFixed(2)} ${currency}</span></div>
+    <div class="r-sub" style="margin-top:6px">Paiement : ${paymentMethod}</div>
+    <div class="r-footer">${footer}</div>
+  `;
+  document.getElementById("receipt-modal").classList.add("show");
+}
+
+function closeReceiptModal() {
+  document.getElementById("receipt-modal").classList.remove("show");
+}
+
+function openSplitModal(ticketId) {
+  pendingSplitTicket = openOrders.find(o => o.id === ticketId);
+  splitAssignment = {};
+  pendingSplitTicket.items.forEach(i => { splitAssignment[i.id] = 1; });
+  renderSplitModal();
+  document.getElementById("split-modal").classList.add("show");
+}
+function closeSplitModal() {
+  document.getElementById("split-modal").classList.remove("show");
+}
+function toggleSplitGroup(itemId) {
+  splitAssignment[itemId] = splitAssignment[itemId] === 1 ? 2 : 1;
+  renderSplitModal();
+}
+function renderSplitModal() {
+  const el = document.getElementById("split-items");
+  el.innerHTML = pendingSplitTicket.items.map(i => `
+    <div class="row">
+      <div class="row-main">${i.product_name} x${i.quantity}</div>
+      <button class="group-btn group-${splitAssignment[i.id]}" onclick="toggleSplitGroup('${i.id}')">
+        Groupe ${splitAssignment[i.id]}
+      </button>
+    </div>
+  `).join("");
+}
+async function confirmSplit() {
+  const groupA = Object.entries(splitAssignment).filter(([, g]) => g === 1).map(([id]) => id);
+  const groupB = Object.entries(splitAssignment).filter(([, g]) => g === 2).map(([id]) => id);
+  const groups = [groupA, groupB].filter(g => g.length > 0);
+  if (groups.length < 2) { showToast("Assignez au moins un article a chaque groupe", true); return; }
+
+  const res = await fetch(`${API}/orders/${pendingSplitTicket.id}/split`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groups }),
+  });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error, true); return; }
+  closeSplitModal();
+  await loadAll();
+  showToast("Addition divisee");
+}
+
+function populateEmployeeSelects() {
+  const opts = employees.map(e => `<option value="${e.id}">${e.name}</option>`).join("");
+  document.getElementById("cancel-manager-select").innerHTML = opts;
+}
+function openCancelModal(ticketId, total) {
+  pendingCancelTicket = ticketId;
+  document.getElementById("cancel-modal-total").textContent = total.toFixed(2);
+  document.getElementById("cancel-reason").value = "";
+  document.getElementById("cancel-credential").value = "";
+  document.getElementById("cancel-error").textContent = "";
+  document.getElementById("cancel-modal").classList.add("show");
+}
+function closeCancelModal() {
+  document.getElementById("cancel-modal").classList.remove("show");
+}
+function setApprovalMethod(method) {
+  document.querySelectorAll(".approval-tab").forEach(el => el.classList.toggle("active", el.dataset.method === method));
+  document.getElementById("cancel-modal").dataset.method = method;
+  document.getElementById("credential-label").textContent = {
+    admin_pin: "Code PIN",
+    nfc_card: "Identifiant carte NFC (scan simule)",
+    password: "Mot de passe",
+    manager_approval: "Aucun code necessaire - selectionnez juste le manager",
+  }[method];
+  document.getElementById("credential-row").style.display = method === "manager_approval" ? "none" : "block";
+}
+async function confirmCancel() {
+  const method = document.getElementById("cancel-modal").dataset.method || "admin_pin";
+  const managerId = document.getElementById("cancel-manager-select").value;
+  const credential = document.getElementById("cancel-credential").value;
+  const reason = document.getElementById("cancel-reason").value;
+
+  if (!reason.trim()) { document.getElementById("cancel-error").textContent = "Un motif est requis"; return; }
+
+  const approval = { method, manager_id: managerId, credential };
+  const res = await fetch(`${API}/orders/${pendingCancelTicket}/cancel`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason, approval }),
+  });
+  const data = await res.json();
+  if (!res.ok) { document.getElementById("cancel-error").textContent = data.error; return; }
+
+  closeCancelModal();
+  await loadAll();
+  showToast(`Commande #${data.ticket_number} ${data.status === "refunded" ? "remboursee" : "annulee"}`);
+}
+
+function showToast(message, isError = false) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.className = `toast show ${isError ? "error" : ""}`;
+  setTimeout(() => { toast.className = "toast"; }, 2500);
+}
+
+function handleBarcodeInput(event) {
+  if (event.key !== "Enter") return;
+  const input = event.target;
+  const code = input.value.trim();
+  input.value = "";
+  if (!code) return;
+
+  const product = products.find(p => p.barcode === code);
+  if (product) {
+    addToCart(product.id);
+    showToast(`${product.name} ajoute`);
+  } else {
+    showToast(`Aucun produit avec le code-barres "${code}"`, true);
+  }
+}
+
+function holdOrder() {
+  const entries = Object.entries(cart);
+  if (!entries.length) return;
+
+  const held = JSON.parse(localStorage.getItem("held_orders") || "[]");
+  const timeLabel = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const tableName = selectedTableId ? tableLabel(selectedTableId) : "";
+  held.push({
+    id: "hold_" + Date.now(),
+    label: `${labelForType(orderType)}${tableName ? " - " + tableName : ""} - ${timeLabel}`,
+    orderType, tableId: selectedTableId, discount: currentDiscount,
+    cartEntries: entries.map(([key, e]) => ({
+      key, kind: e.kind, productId: e.product ? e.product.id : null,
+      name: e.name, unit_price: e.unit_price, quantity: e.quantity,
+    })),
+  });
+  localStorage.setItem("held_orders", JSON.stringify(held));
+
+  cart = {};
+  currentDiscount = null;
+  document.getElementById("discount-value").value = "";
+  selectedTableId = null;
+  renderCart();
+  renderTables();
+  renderHeldOrders();
+  showToast("Commande mise en attente");
+}
+
+function renderHeldOrders() {
+  const held = JSON.parse(localStorage.getItem("held_orders") || "[]");
+  const section = document.getElementById("held-orders-section");
+  section.style.display = held.length ? "block" : "none";
+  document.getElementById("held-orders").innerHTML = held.map(h => `
+    <div class="held-order-chip">
+      <span>${h.label} (${h.cartEntries.length} article(s))</span>
+      <div>
+        <button onclick="recallHeldOrder('${h.id}')">Reprendre</button>
+        <button onclick="deleteHeldOrder('${h.id}')">Suppr.</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function recallHeldOrder(holdId) {
+  const held = JSON.parse(localStorage.getItem("held_orders") || "[]");
+  const item = held.find(h => h.id === holdId);
+  if (!item) return;
+
+  cart = {};
+  item.cartEntries.forEach(e => {
+    if (e.kind === "catalog") {
+      const product = products.find(p => p.id === e.productId);
+      cart[e.key] = {
+        kind: "catalog",
+        product: product || { id: e.productId, name: e.name, sale_price: e.unit_price },
+        quantity: e.quantity, unit_price: product ? product.sale_price : e.unit_price,
+        name: product ? product.name : e.name,
+      };
+    } else {
+      cart[e.key] = { kind: "custom", quantity: e.quantity, unit_price: e.unit_price, name: e.name };
+    }
+  });
+  orderType = item.orderType;
+  selectedTableId = item.tableId;
+  currentDiscount = item.discount;
+  document.getElementById("discount-value").value = currentDiscount ? currentDiscount.value : "";
+  if (currentDiscount) document.getElementById("discount-type").value = currentDiscount.type;
+
+  localStorage.setItem("held_orders", JSON.stringify(held.filter(h => h.id !== holdId)));
+
+  renderTypeTabs();
+  renderTables();
+  renderCart();
+  renderGrid();
+  renderHeldOrders();
+  showToast("Commande reprise");
+}
+
+function deleteHeldOrder(holdId) {
+  const held = JSON.parse(localStorage.getItem("held_orders") || "[]");
+  localStorage.setItem("held_orders", JSON.stringify(held.filter(h => h.id !== holdId)));
+  renderHeldOrders();
+}
+
+async function init() {
+  const businessType = await checkBusinessType();
+  const config = BUSINESS_TYPE_CONFIG[businessType] || BUSINESS_TYPE_CONFIG.other;
+  allowedOrderTypes = config.orderTypes;
+  orderType = allowedOrderTypes[0];
+  renderTypeTabs();
+  renderHeldOrders();
+  document.getElementById("barcode-input").addEventListener("keydown", handleBarcodeInput);
+  await loadAll();
+}
+
+setApprovalMethod("admin_pin");
+init();
+</script>
+
+</body>
+</html>
